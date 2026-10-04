@@ -1,4 +1,4 @@
-import { MISSIONS, VERSE, TEAMS, SCORE } from './data.js'
+import { MISSIONS, VERSES, TEAMS, SCORE } from './data.js'
 
 const SIZE = 4
 
@@ -38,9 +38,13 @@ export function scoreOf(board, done) {
 
 // 말씀을 어절로 나누어 팀에 차례로 배분한다. 팀이 미션을 완료한 비율만큼 그 팀의 조각이 열린다.
 // counts: { [teamId]: 완료한 미션 수 }
-export function versePieces(counts) {
-  const words = VERSE.text.split(' ').map((text, i) => ({ text, teamId: TEAMS[i % TEAMS.length].id, open: false }))
-  for (const team of TEAMS) {
+export function versePieces(counts, teams = TEAMS) {
+  const words = VERSES.flatMap((verse, part) => verse.text.split(' ').map((text) => ({ text, part }))).map((w, i) => ({
+    ...w,
+    teamId: teams[i % teams.length].id,
+    open: false,
+  }))
+  for (const team of teams) {
     const mine = words.filter((w) => w.teamId === team.id)
     const openCount = Math.floor(((counts[team.id] || 0) / MISSIONS.length) * mine.length)
     mine.slice(0, openCount).forEach((w) => (w.open = true))
@@ -55,9 +59,9 @@ export function doneByTeam(submissions) {
   return map
 }
 
-export function ranking(submissions) {
+export function ranking(submissions, teams = TEAMS) {
   const map = doneByTeam(submissions)
-  return TEAMS.map((team) => ({ team, ...scoreOf(boardFor(team.id), map[team.id]) })).sort(
+  return teams.map((team) => ({ team, ...scoreOf(boardFor(team.id), map[team.id]) })).sort(
     (a, b) => b.score - a.score || a.team.id - b.team.id,
   )
 }

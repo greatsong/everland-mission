@@ -64,6 +64,7 @@ begin
                from evm_notices order by id desc limit 1),
     'checkins', coalesce((
       select json_agg(json_build_object('team_id', team_id, 'at', checked_at)) from evm_checkins), '[]'::json),
+    'team_count', coalesce((select value::int from evm_config where key = 'team_count'), 6),
     'now', now()
   );
 end $$;
@@ -121,6 +122,18 @@ begin
   insert into evm_notices (body) values (left(coalesce(p_body, ''), 200));
 end $$;
 
+-- 참가 팀 수(2~6). 말씀 조각 배분이 달라지므로 행사 시작 전에 정한다.
+create or replace function evm_set_teams(p_code text, p_count int) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform evm_require(p_code, true);
+  if p_count not between 2 and 6 then
+    raise exception 'EVM_BAD_COUNT' using errcode = 'P0001';
+  end if;
+  insert into evm_config (key, value) values ('team_count', p_count::text)
+  on conflict (key) do update set value = excluded.value;
+end $$;
+
 -- 행사 뒤 사진과 기록을 모두 지운다.
 create or replace function evm_wipe(p_code text) returns void
 language plpgsql security definer set search_path = public as $$
@@ -135,5 +148,5 @@ revoke all on function evm_require(text, boolean) from public, anon, authenticat
 grant execute on function
   evm_login(text), evm_state(text), evm_submit(text, int, text, text), evm_remove(text, int, text),
   evm_photo(text, int, text), evm_cheer(text, int, text), evm_checkin(text, int),
-  evm_notice(text, text), evm_wipe(text)
+  evm_notice(text, text), evm_wipe(text), evm_set_teams(text, int)
 to anon, authenticated;

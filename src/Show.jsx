@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { TEAMS, MISSIONS, VERSE } from './data.js'
+import { TEAMS, MISSIONS, VERSES } from './data.js'
 import { doneByTeam, versePieces } from './logic.js'
-import { useRemote, Photo } from './shared.jsx'
+import { useRemote, Photo, teamsOf } from './shared.jsx'
 
 const SLIDE_MS = 5000
 
@@ -55,11 +55,15 @@ function PhotoSlide({ code, sub }) {
 function VerseSlide({ data }) {
   const map = doneByTeam(data.submissions)
   const counts = Object.fromEntries(TEAMS.map((t) => [t.id, Object.keys(map[t.id]).length]))
-  const words = versePieces(counts)
+  const words = versePieces(counts, teamsOf(data))
   return (
     <div className="show-verse">
-      <p>{words.map((w) => (w.open ? w.text : '○○')).join(' ')}</p>
-      <small>{VERSE.ref}</small>
+      {VERSES.map((verse, part) => (
+        <div key={verse.ref}>
+          <p>{words.filter((w) => w.part === part).map((w) => (w.open ? w.text : '○○')).join(' ')}</p>
+          <small>{verse.ref}</small>
+        </div>
+      ))}
     </div>
   )
 }

@@ -152,3 +152,13 @@ h1, h2, p, figure { margin: 0; }
 .show-verse { max-width: 900px; padding: 24px; text-align: center; }
 .show-verse p { font-size: clamp(24px, 4.5vw, 52px); font-weight: 800; line-height: 1.5; word-break: keep-all; }
 .show-verse small { display: block; margin-top: 18px; color: #bbb; font-size: clamp(14px, 2vw, 22px); }
+
+.verse-block + .verse-block { margin-top: 14px; }
+.show-verse > div + div { margin-top: 5vh; }
+.show-verse p { font-size: clamp(20px, 3.4vw, 42px); }
+.show-verse small { margin-top: 10px; }
+
+.team-count { margin-top: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; }
+.team-count button { border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; background: var(--card); }
+.team-count button.on { background: var(--team); border-color: var(--team); color: #fff; font-weight: 700; }
+.team-count small { color: var(--muted); }

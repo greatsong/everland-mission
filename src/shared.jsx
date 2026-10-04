@@ -1,9 +1,22 @@
 import { useCallback, useEffect, useState } from 'react'
-import { VERSE } from './data.js'
+import { VERSES, TEAMS } from './data.js'
 import { rpc, fetchPhoto, BadCodeError } from './store.js'
 import { versePieces, ranking, minutesAgo } from './logic.js'
 
 const POLL_MS = 15000
+const TEAM_COUNT_KEY = 'evm:v2:teamCount'
+
+// 참가 팀 목록. 팀 수는 본부가 정하고, 통신이 끊겼을 때는 마지막으로 받은 값을 사용한다.
+export function teamsOf(data) {
+  let count = data?.team_count
+  try {
+    if (count) localStorage.setItem(TEAM_COUNT_KEY, String(count))
+    else count = Number(localStorage.getItem(TEAM_COUNT_KEY))
+  } catch {
+    /* 저장이 막힌 브라우저에서는 기본값을 사용한다 */
+  }
+  return TEAMS.slice(0, count || TEAMS.length)
+}
 
 // 서버 상태를 주기적으로 받아 온다. 화면이 다시 보일 때도 받아 온다.
 export function useRemote(code, onBadCode) {
@@ -62,19 +75,23 @@ export function Photo({ code, sub, alt, className }) {
   return <img className={className} src={src} alt={alt} />
 }
 
-export function VerseView({ counts, myTeamId }) {
-  const words = versePieces(counts)
+export function VerseView({ counts, myTeamId, teams }) {
+  const words = versePieces(counts, teams)
   const openCount = words.filter((w) => w.open).length
   return (
     <>
-      <div className="verse">
-        {words.map((w, i) => (
-          <span key={i} className={`piece ${w.teamId === myTeamId ? 'mine' : ''} ${w.open ? 'open' : ''}`}>
-            {w.open ? w.text : '？'}
-          </span>
-        ))}
-      </div>
-      <p className="verse-ref">{VERSE.ref}</p>
+      {VERSES.map((verse, part) => (
+        <div key={verse.ref} className="verse-block">
+          <div className="verse">
+            {words.filter((w) => w.part === part).map((w, i) => (
+              <span key={i} className={`piece ${w.teamId === myTeamId ? 'mine' : ''} ${w.open ? 'open' : ''}`}>
+                {w.open ? w.text : '？'}
+              </span>
+            ))}
+          </div>
+          <p className="verse-ref">{verse.ref}</p>
+        </div>
+      ))}
       <p className="verse-count">
         전체 조각 <b>{openCount}</b>/{words.length}
         {openCount === words.length && ' · 말씀이 완성되었습니다 🎉'}
@@ -84,7 +101,7 @@ export function VerseView({ counts, myTeamId }) {
 }
 
 export function Ranking({ data, myTeamId, showCheckin }) {
-  const rows = ranking(data.submissions)
+  const rows = ranking(data.submissions, teamsOf(data))
   const checkins = Object.fromEntries(data.checkins.map((c) => [c.team_id, c.at]))
   return (
     <ol className="ranking">

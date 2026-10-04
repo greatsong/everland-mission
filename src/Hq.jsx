@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { TEAMS, MISSIONS } from './data.js'
 import { rpc } from './store.js'
 import { doneByTeam } from './logic.js'
-import { useRemote, Photo, VerseView, Ranking } from './shared.jsx'
+import { useRemote, Photo, VerseView, Ranking, teamsOf } from './shared.jsx'
 
 // 본부 화면. 본부 코드로 입장한 사람만 사용한다.
 export default function Hq({ session, onLogout }) {
@@ -68,6 +68,19 @@ export default function Hq({ session, onLogout }) {
           <section>
             <h2 className="section">팀 현황</h2>
             <Ranking data={data} showCheckin />
+            <p className="team-count">
+              참가 팀 수
+              {[5, 6].map((n) => (
+                <button
+                  key={n}
+                  className={data.team_count === n ? 'on' : ''}
+                  onClick={() => run('evm_set_teams', { p_count: n }, `참가 팀을 ${n}개로 정했습니다.`)}
+                >
+                  {n}팀
+                </button>
+              ))}
+              <small>말씀 조각 배분이 달라지므로 행사 시작 전에 정합니다.</small>
+            </p>
           </section>
 
           <section>
@@ -86,7 +99,7 @@ export default function Hq({ session, onLogout }) {
 
           <section>
             <h2 className="section">말씀 조각</h2>
-            <VerseView counts={counts} />
+            <VerseView counts={counts} teams={teamsOf(data)} />
           </section>
 
           <section>

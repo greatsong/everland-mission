@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { TEAMS, MISSIONS } from './data.js'
 import { rpc, BadCodeError, loadSession, saveSession, loadState, saveState, compressPhoto } from './store.js'
 import { boardFor, scoreOf, doneByTeam, minutesAgo } from './logic.js'
-import { useRemote, usePhoto, Photo, VerseView, Ranking } from './shared.jsx'
+import { useRemote, usePhoto, Photo, VerseView, Ranking, teamsOf } from './shared.jsx'
 import Games from './Games.jsx'
 import Hq from './Hq.jsx'
 import Show from './Show.jsx'
@@ -93,13 +93,14 @@ function Login({ onLogin }) {
 }
 
 function TeamSelect({ session, onSelect, onLogout }) {
+  const { data } = useRemote(session.code, onLogout)
   return (
     <main className="select">
       <p className="select-emoji">🎡</p>
       <h1>에버랜드 미션</h1>
       <p className="sub">우리 팀을 선택합니다. 선생님 휴대폰 한 대로 진행합니다.</p>
       <div className="team-grid">
-        {TEAMS.map((t) => (
+        {teamsOf(data).map((t) => (
           <button key={t.id} className="team-btn" style={{ background: t.color }} onClick={() => onSelect(t.id)}>
             {t.name}
           </button>
@@ -229,7 +230,7 @@ function TeamHome({ session, onLeave, onLogout }) {
   return (
     <div className="app" style={{ '--team': team.color }}>
       <header className="top">
-        <button className="team-chip" onClick={() => confirm('팀 선택 화면으로 돌아갑니까? 기록은 그대로 남습니다.') && onLeave()}>
+        <button className="team-chip" onClick={() => confirm('팀 선택 화면으로 돌아갑니다. 기록은 그대로 남습니다.') && onLeave()}>
           {team.name}
         </button>
         <div className="stats">
@@ -259,9 +260,9 @@ function TeamHome({ session, onLeave, onLogout }) {
         {tab === 'verse' && (
           <>
             <p className="guide">
-              미션을 완료하면 우리 팀의 말씀 조각이 열립니다. 테두리가 있는 칸이 우리 팀 조각입니다. 여섯 팀이 모두 모으면 말씀이 완성됩니다.
+              미션을 완료하면 우리 팀의 말씀 조각이 열립니다. 테두리가 있는 칸이 우리 팀 조각입니다. 모든 팀이 조각을 모으면 말씀이 완성됩니다.
             </p>
-            <VerseView counts={counts} myTeamId={teamId} />
+            <VerseView counts={counts} myTeamId={teamId} teams={teamsOf(data)} />
           </>
         )}
         {tab === 'all' && <Everyone code={code} data={data} teamId={teamId} refresh={refresh} />}
