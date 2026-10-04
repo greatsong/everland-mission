@@ -1,13 +1,8 @@
-import { useMemo, useState } from 'react'
-import { TEAMS, MISSIONS } from './data.js'
+import { useEffect, useMemo, useState } from 'react'
+import { TEAMS, MISSIONS, QUIZ_KINDS, SEED_QUIZ, toChosung } from './data.js'
 import { rpc } from './store.js'
-import { doneByTeam, missionInfo } from './logic.js'
+import { doneByTeam, missionInfo, rushRank } from './logic.js'
 import { useRemote, Photo, VerseView, Ranking, teamsOf } from './shared.jsx'
-
-const QUIZ_GAMES = [
-  { id: 'bible', title: '성경 퀴즈 대결' },
-  { id: 'chosung', title: '초성 퀴즈 대결' },
-]
 
 // 본부 화면. 본부 코드로 입장한 사람만 사용한다.
 export default function Hq({ session, onLogout }) {
@@ -100,6 +95,11 @@ export default function Hq({ session, onLogout }) {
           </section>
 
           <section>
+            <h2 className="section">🎲 퀴즈 출제</h2>
+            <QuizAdmin code={code} data={data} teams={teams} run={run} />
+          </section>
+
+          <section>
             <h2 className="section">전체 알림(점수 없음)</h2>
             <p className="guide">현재 알림: {data.notice?.body ? data.notice.body : '없음'}</p>
             <form className="login" onSubmit={sendNotice}>
@@ -164,13 +164,14 @@ function OrderForm({ run }) {
   const [body, setBody] = useState('')
   const [answer, setAnswer] = useState('')
   const [points, setPoints] = useState(20)
+  const [rush, setRush] = useState(false)
 
   async function submit(e) {
     e.preventDefault()
     if (!body.trim() || (kind === 'answer' && !answer.trim())) return
     const ok = await run(
       'evm_order',
-      { p_kind: kind, p_body: body.trim(), p_answer: kind === 'answer' ? answer.trim() : null, p_points: points },
+      { p_kind: kind, p_body: body.trim(), p_answer: kind === 'answer' ? answer.trim() : null, p_points: points, p_rush: rush },
       '지령을 보냈습니다. 팀 화면에 15초 안에 표시됩니다.',
     )
     if (ok) {
@@ -185,10 +186,12 @@ function OrderForm({ run }) {
         <button type="button" className={kind === 'photo' ? 'on' : ''} onClick={() => setKind('photo')}>사진 미션</button>
         <button type="button" className={kind === 'answer' ? 'on' : ''} onClick={() => setKind('answer')}>정답 미션</button>
         <span className="seg-gap" />
-        {[10, 20, 30].map((p) => (
+        {!rush && [10, 20, 30].map((p) => (
           <button type="button" key={p} className={points === p ? 'on' : ''} onClick={() => setPoints(p)}>{p}점</button>
         ))}
+        <button type="button" className={rush ? 'on' : ''} onClick={() => setRush(!rush)}>⏱ 타임어택</button>
       </div>
+      {rush && <p className="guide">타임어택은 먼저 완료한 순서대로 30·20·10점, 그 뒤는 5점을 받습니다. 이동 중에 뛰지 않도록 제자리에서 할 수 있는 내용으로 냅니다.</p>}
       <input
         value={body}
         onChange={(e) => setBody(e.target.value)}
@@ -212,6 +215,12 @@ function orderDone(data, doneMap, teamId, order) {
   return data.scores.some((s) => s.team_id === teamId && s.game_id === `order:${order.id}`)
 }
 
+function orderRank(data, teamId, o) {
+  if (o.kind === 'photo') return rushRank(data, o.id, teamId)
+  const mine = data.scores.find((s) => s.team_id === teamId && s.game_id === `order:${o.id}`)
+  return mine ? [30, 20, 10].indexOf(mine.score) + 1 || 4 : 0
+}
+
 function OrderList({ data, teams, doneMap, run }) {
   if (!data.orders.length) return <p className="guide">아직 보낸 지령이 없습니다.</p>
   return (
@@ -221,10 +230,14 @@ function OrderList({ data, teams, doneMap, run }) {
         return (
           <li key={o.id} className={o.open ? '' : 'closed'}>
             <p className="order-meta">
-              {o.kind === 'photo' ? '사진 미션' : '정답 미션'} · {o.points}점 · {o.open ? '진행 중' : '마감'} · 완료 {doneTeams.length}/{teams.length}팀
+              {o.rush && '⏱ 타임어택 · '}{o.kind === 'photo' ? '사진 미션' : '정답 미션'} · {o.rush ? '30·20·10점' : `${o.points}점`} · {o.open ? '진행 중' : '마감'} · 완료 {doneTeams.length}/{teams.length}팀
             </p>
             <p className="order-body">{o.body}{o.kind === 'answer' && <small> (정답: {o.answer})</small>}</p>
-            {doneTeams.length > 0 && <p className="order-meta">완료: {doneTeams.map((t) => t.name).join(', ')}</p>}
+            {doneTeams.length > 0 && (
+              <p className="order-meta">
+                완료: {doneTeams.map((t) => t.name + (o.rush ? `(${orderRank(data, t.id, o)}등)` : '')).join(', ')}
+              </p>
+            )}
             {o.open && (
               <button className="link" onClick={() => confirm('이 지령을 마감합니까? 마감 뒤에는 제출할 수 없습니다.') && run('evm_order_close', { p_id: o.id }, '지령을 마감했습니다.')}>
                 마감하기
@@ -237,10 +250,12 @@ function OrderList({ data, teams, doneMap, run }) {
   )
 }
 
-// 팀별 달성 현황표: 빙고 미션 16개, 본부 지령, 대결 점수
+// 팀별 달성 현황표: 빙고 미션 16개, 본부 지령, 퀴즈 종류별 맞힌 수, 출제 점수
 function Matrix({ data, teams, doneMap }) {
   const orders = [...data.orders].reverse()
-  const quizScore = (teamId, gameId) => data.scores.find((s) => s.team_id === teamId && s.game_id === gameId)?.score
+  const solvedCount = (teamId, kind) =>
+    data.quizzes.filter((q) => q.kind === kind && data.scores.some((s) => s.team_id === teamId && s.game_id === `quiz:${q.id}` && s.score > 0)).length
+  const authorBonus = (teamId) => data.scores.filter((s) => s.team_id === teamId && s.game_id.startsWith('qa:')).reduce((sum, s) => sum + s.score, 0)
   return (
     <div className="matrix-wrap">
       <table className="matrix">
@@ -260,17 +275,179 @@ function Matrix({ data, teams, doneMap }) {
           {orders.map((o) => (
             <tr key={o.id} className="matrix-order">
               <th>📢 {o.body}</th>
-              {teams.map((t) => <td key={t.id}>{orderDone(data, doneMap, t.id, o) ? '✓' : ''}</td>)}
+              {teams.map((t) => <td key={t.id}>{orderDone(data, doneMap, t.id, o) ? (o.rush ? `${orderRank(data, t.id, o)}등` : '✓') : ''}</td>)}
             </tr>
           ))}
-          {QUIZ_GAMES.map((g) => (
-            <tr key={g.id} className="matrix-quiz">
-              <th>{g.title}</th>
-              {teams.map((t) => <td key={t.id}>{quizScore(t.id, g.id) ?? ''}</td>)}
-            </tr>
-          ))}
+          {QUIZ_KINDS.map((k) => {
+            const total = data.quizzes.filter((q) => q.kind === k.id && q.status !== 'pending' && q.status !== 'draft').length
+            return (
+              <tr key={k.id} className="matrix-quiz">
+                <th>{k.icon} {k.title} (맞힌 수 / 출제 {total})</th>
+                {teams.map((t) => <td key={t.id}>{solvedCount(t.id, k.id)}</td>)}
+              </tr>
+            )
+          })}
+          <tr className="matrix-quiz">
+            <th>🙆 몸으로 말해요 출제 점수</th>
+            {teams.map((t) => <td key={t.id}>{authorBonus(t.id) || ''}</td>)}
+          </tr>
         </tbody>
       </table>
     </div>
+  )
+}
+
+const STATUS_LABEL = { pending: '승인 대기', draft: '보관', open: '출제 중', closed: '마감' }
+
+// 퀴즈 출제·승인·마감·삭제
+function QuizAdmin({ code, data, teams, run }) {
+  const [kind, setKind] = useState('chosung')
+  const list = data.quizzes.filter((q) => q.kind === kind)
+  const drafts = list.filter((q) => q.status === 'draft').length
+  const pendingActs = data.quizzes.filter((q) => q.status === 'pending').length
+
+  function seed() {
+    if (!confirm(`기본 문제 ${SEED_QUIZ.length}개를 보관 상태로 넣습니다. 이미 넣었다면 문제가 중복됩니다. 진행합니까?`)) return
+    run('evm_quiz_seed', { p_items: SEED_QUIZ }, '기본 문제를 보관 상태로 넣었습니다. 필요한 문제를 골라 출제합니다.')
+  }
+
+  return (
+    <>
+      <div className="seg">
+        {QUIZ_KINDS.map((k) => (
+          <button key={k.id} className={kind === k.id ? 'on' : ''} onClick={() => setKind(k.id)}>
+            {k.icon} {k.title} {data.quizzes.filter((q) => q.kind === k.id).length}
+            {k.id === 'act' && pendingActs > 0 && <b className="badge">{pendingActs}</b>}
+          </button>
+        ))}
+      </div>
+
+      {kind === 'act' ? (
+        <p className="guide">팀이 사진과 정답을 보내면 여기에 표시됩니다. 승인하면 다른 팀에게 출제되고, 맞힌 팀은 10점, 출제한 팀은 맞힌 팀마다 5점을 받습니다.</p>
+      ) : (
+        <QuizForm key={kind} kind={kind} run={run} />
+      )}
+
+      <p className="quiz-tools">
+        {kind !== 'act' && drafts > 0 && (
+          <button className="link" onClick={() => run('evm_quiz_open_all', { p_kind: kind }, '보관 중인 문제를 모두 출제했습니다.')}>보관 {drafts}개 모두 출제</button>
+        )}
+        {kind !== 'act' && <button className="link" onClick={seed}>기본 문제 불러오기</button>}
+      </p>
+
+      {!list.length && <p className="guide">문제가 없습니다.</p>}
+      <ul className="order-list">
+        {list.map((q) => {
+          const solvers = teams.filter((t) => data.scores.some((s) => s.team_id === t.id && s.game_id === `quiz:${q.id}` && s.score > 0))
+          const author = TEAMS.find((t) => t.id === q.author_team)
+          return (
+            <li key={q.id} className={q.status === 'closed' ? 'closed' : ''}>
+              <p className="order-meta">
+                {STATUS_LABEL[q.status]} · {q.points}점{author && ` · ${author.name} 출제`} · 맞힌 팀 {solvers.length}
+                {solvers.length > 0 && ` (${solvers.map((t) => t.name).join(', ')})`}
+              </p>
+              {q.kind === 'act' && <HqQuizPhoto code={code} quizId={q.id} />}
+              <p className="order-body">
+                {q.body}
+                <small> 정답: {q.kind === 'bible' ? q.choices[Number(q.answer)] : q.answer}{q.hint && ` · 힌트: ${q.hint}`}</small>
+              </p>
+              {q.kind === 'bible' && <p className="order-meta">{q.choices.join(' / ')}</p>}
+              <p className="quiz-tools">
+                {q.status === 'pending' && <button className="link" onClick={() => run('evm_quiz_set', { p_id: q.id, p_status: 'open' }, '승인해 출제했습니다.')}>승인하고 출제</button>}
+                {q.status === 'draft' && <button className="link" onClick={() => run('evm_quiz_set', { p_id: q.id, p_status: 'open' }, '출제했습니다.')}>출제</button>}
+                {q.status === 'open' && <button className="link" onClick={() => run('evm_quiz_set', { p_id: q.id, p_status: 'closed' }, '마감했습니다.')}>마감</button>}
+                {q.status === 'closed' && <button className="link" onClick={() => run('evm_quiz_set', { p_id: q.id, p_status: 'open' }, '다시 출제했습니다.')}>다시 출제</button>}
+                <button
+                  className="link"
+                  onClick={() => confirm('이 문제를 삭제합니까? 이 문제로 받은 점수도 함께 지워집니다.') && run('evm_quiz_delete', { p_id: q.id }, '삭제했습니다.')}
+                >
+                  {q.status === 'pending' ? '반려(삭제)' : '삭제'}
+                </button>
+              </p>
+            </li>
+          )
+        })}
+      </ul>
+    </>
+  )
+}
+
+function HqQuizPhoto({ code, quizId }) {
+  const [src, setSrc] = useState(null)
+  useEffect(() => {
+    let alive = true
+    rpc('evm_quiz_photo', { p_code: code, p_id: quizId }).then((photo) => alive && setSrc(photo)).catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [code, quizId])
+  return src ? <img className="quiz-photo" src={src} alt="팀이 보낸 사진" /> : null
+}
+
+function QuizForm({ kind, run }) {
+  const [body, setBody] = useState('')
+  const [answer, setAnswer] = useState('')
+  const [hint, setHint] = useState('')
+  const [choices, setChoices] = useState(['', '', '', ''])
+  const [correct, setCorrect] = useState(0)
+  const [points, setPoints] = useState(10)
+
+  async function submit(open) {
+    let args
+    if (kind === 'chosung') {
+      if (!answer.trim()) return
+      args = { p_body: toChosung(answer.trim()), p_choices: null, p_answer: answer.trim(), p_hint: hint.trim() }
+    } else if (kind === 'bible') {
+      if (!body.trim() || choices.some((c) => !c.trim())) return
+      args = { p_body: body.trim(), p_choices: choices.map((c) => c.trim()), p_answer: String(correct), p_hint: null }
+    } else {
+      if (!body.trim() || !answer.trim()) return
+      args = { p_body: body.trim(), p_choices: null, p_answer: answer.trim(), p_hint: null }
+    }
+    const ok = await run('evm_quiz_add', { p_kind: kind, ...args, p_points: points, p_open: open }, open ? '출제했습니다.' : '보관했습니다.')
+    if (ok) {
+      setBody('')
+      setAnswer('')
+      setHint('')
+      setChoices(['', '', '', ''])
+    }
+  }
+
+  return (
+    <form className="order-form" onSubmit={(e) => e.preventDefault()}>
+      {kind === 'chosung' && (
+        <>
+          <input value={answer} onChange={(e) => setAnswer(e.target.value)} maxLength={40} aria-label="정답" placeholder="정답(예: 우리 교회 이름, 목사님 성함, 성경 인물)" />
+          <p className="guide">팀 화면에는 초성만 표시됩니다{answer.trim() && `: ${toChosung(answer.trim())}`}. 띄어쓰기는 채점에서 무시합니다.</p>
+          <input value={hint} onChange={(e) => setHint(e.target.value)} maxLength={100} aria-label="힌트" placeholder="힌트(선택). 힌트를 본 팀은 절반 점수를 받습니다" />
+        </>
+      )}
+      {kind === 'bible' && (
+        <>
+          <input value={body} onChange={(e) => setBody(e.target.value)} maxLength={300} aria-label="문제" placeholder="문제" />
+          {choices.map((c, i) => (
+            <label key={i} className="choice-row">
+              <input type="radio" name="correct" checked={correct === i} onChange={() => setCorrect(i)} aria-label={`${i + 1}번을 정답으로`} />
+              <input value={c} onChange={(e) => setChoices(choices.map((x, k) => (k === i ? e.target.value : x)))} maxLength={60} aria-label={`선택지 ${i + 1}`} placeholder={`선택지 ${i + 1}`} />
+            </label>
+          ))}
+          <p className="guide">정답인 선택지의 동그라미를 고릅니다. 팀은 문제마다 한 번만 답할 수 있습니다.</p>
+        </>
+      )}
+      {kind === 'nonsense' && (
+        <>
+          <input value={body} onChange={(e) => setBody(e.target.value)} maxLength={300} aria-label="문제" placeholder="문제(예: 왕이 넘어지면?)" />
+          <input value={answer} onChange={(e) => setAnswer(e.target.value)} maxLength={40} aria-label="정답" placeholder="정답(낱말 하나)" />
+        </>
+      )}
+      <div className="seg">
+        {[5, 10, 20].map((p) => (
+          <button type="button" key={p} className={points === p ? 'on' : ''} onClick={() => setPoints(p)}>{p}점</button>
+        ))}
+        <span className="seg-gap" />
+        <button type="button" className="ghost" onClick={() => submit(false)}>보관</button>
+        <button type="button" className="primary" onClick={() => submit(true)}>바로 출제</button>
+      </div>
+    </form>
   )
 }

@@ -204,3 +204,30 @@ h1, h2, p, figure { margin: 0; }
 .matrix td { font-weight: 800; color: var(--team); }
 .matrix-order th { font-weight: 700; }
 .matrix-quiz td { color: var(--ink); }
+
+/* 알림함, 퀴즈 */
+.status { gap: 6px; }
+.badge { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 999px; background: #e03131; color: #fff; font-size: 12px; line-height: 18px; text-align: center; }
+.sheet.inbox { text-align: left; }
+.sheet.inbox h2 { text-align: center; }
+.sheet.inbox .hq-notice { margin: 0; }
+.inbox-item { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+.inbox-item.finished { opacity: 0.6; }
+.inbox-item .order-body { font-size: 15px; }
+.quiz-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 6px; }
+.quiz-chip { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 8px 0; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.quiz-chip b { font-size: 17px; }
+.quiz-chip small { font-size: 11px; color: var(--muted); }
+.quiz-chip.solved { background: var(--team); border-color: var(--team); color: #fff; }
+.quiz-chip.solved small { color: #fff; }
+.quiz-chip.failed, .quiz-chip.closed { background: var(--bg); color: var(--muted); }
+.guide.empty { font-size: 13px; }
+.act-status { background: var(--card); border: 1px solid var(--team); border-radius: 12px; padding: 10px 12px; font-size: 14px; margin-bottom: 8px; }
+.game .answer-form input, .card .answer-form input { background: var(--bg); }
+
+.quiz-tools { display: flex; gap: 14px; flex-wrap: wrap; margin: 6px 0 0; }
+.quiz-photo { width: 220px; max-width: 100%; border-radius: 10px; }
+.choice-row { display: flex; align-items: center; gap: 8px; }
+.choice-row input[type='text'], .choice-row input:not([type]) { flex: 1; }
+.order-form .seg .primary, .order-form .seg .ghost { padding: 8px 16px; border-radius: 999px; font-size: 14px; }
+.order-form .seg .primary { background: var(--team); color: #fff; border-color: var(--team); }

@@ -1,259 +1,242 @@
-import { useState } from 'react'
-import {
-  CHOSUNG_WORDS, ACT_WORDS, BIBLE_QUIZ, NONSENSE, TELEPATHY,
-  BIBLE_CONTEST, CHOSUNG_CONTEST, SCORE, CONTEST_SIZE,
-} from './data.js'
-import { toChosung, pickRandom } from './logic.js'
+import { useEffect, useRef, useState } from 'react'
+import { QUIZ_KINDS, TEAMS } from './data.js'
+import { rpc, compressPhoto } from './store.js'
 
-// 우리끼리 하는 게임은 결과를 전송하지 않는다. 전체 대결은 팀당 한 번만 풀고 점수가 순위에 더해진다.
-const FUN_GAMES = [
-  { id: 'act', icon: '🙆', title: '몸으로 말해요', desc: '한 명이 제시어를 몸으로 표현합니다.' },
-  { id: 'telepathy', icon: '🫶', title: '이구동성', desc: '하나, 둘, 셋에 동시에 답합니다.' },
-  { id: 'nonsense', icon: '🤣', title: '넌센스 퀴즈', desc: '엉뚱한 답을 맞힙니다.' },
-  { id: 'chosungFun', icon: '🔤', title: '초성 퀴즈', desc: '초성만 보고 낱말을 맞힙니다.' },
-  { id: 'bibleFun', icon: '📖', title: '성경 퀴즈', desc: '넷 중 하나를 고릅니다.' },
-]
+// 전체 대결 퀴즈. 문제는 본부가 출제하고 서버가 채점한다.
+// 몸으로 말해요만 팀이 사진과 정답을 내고, 본부가 승인하면 다른 팀에게 출제된다.
 
-const CONTEST_GAMES = [
-  { id: 'bible', icon: '✝️', title: '성경 퀴즈 대결', desc: '넷 중 하나를 고릅니다.' },
-  { id: 'chosung', icon: '🔤', title: '초성 퀴즈 대결', desc: '초성만 보고 낱말을 맞힙니다.' },
-]
+const ERRORS = {
+  EVM_QUIZ_CLOSED: '마감된 문제입니다.',
+  EVM_QUIZ_DONE: '이미 답한 문제입니다.',
+  EVM_OWN_QUIZ: '우리 팀이 낸 문제는 풀 수 없습니다.',
+  EVM_ACT_EXISTS: '우리 팀은 이미 문제를 냈습니다.',
+}
 
-const ALL_GAMES = [...FUN_GAMES, ...CONTEST_GAMES]
+function errorText(err) {
+  const key = Object.keys(ERRORS).find((k) => String(err.message).includes(k))
+  return key ? ERRORS[key] : '보내지 못했습니다. 통신 상태를 확인합니다.'
+}
 
-export default function Games({ contest, onAnswer }) {
-  const [game, setGame] = useState(null)
+const resultOf = (data, teamId, quizId) => data.scores.find((s) => s.team_id === teamId && s.game_id === `quiz:${quizId}`)
 
-  if (!game) {
+export default function Games({ code, teamId, data, refresh }) {
+  const [selected, setSelected] = useState(null) // 문제 id
+  const [authoring, setAuthoring] = useState(false)
+
+  if (!data) return <p className="guide">문제를 불러오는 중입니다. 통신이 연결되어야 표시됩니다.</p>
+
+  const quiz = data.quizzes.find((q) => q.id === selected)
+  if (quiz) {
+    const kind = QUIZ_KINDS.find((k) => k.id === quiz.kind)
     return (
-      <>
-        <p className="guide">줄을 서서 기다리는 동안 진행합니다. 주변에 방해되지 않게 작은 목소리로 합니다.</p>
+      <section className="game">
+        <button className="back" onClick={() => setSelected(null)}>← 문제 목록</button>
+        <h2>{kind.icon} {kind.title}</h2>
+        <QuizCard key={quiz.id} code={code} teamId={teamId} quiz={quiz} result={resultOf(data, teamId, quiz.id)} refresh={refresh} />
+      </section>
+    )
+  }
 
-        <h2 className="section">우리끼리 하는 게임</h2>
-        <p className="guide">점수와 상관없이 즐깁니다. 결과는 전송되지 않습니다.</p>
-        <div className="game-list">
-          {FUN_GAMES.map((g) => (
-            <button key={g.id} className="game-card" onClick={() => setGame(g.id)}>
-              <span className="game-icon">{g.icon}</span>
-              <span>
-                <b>{g.title}</b>
-                <small>{g.desc}</small>
-              </span>
-            </button>
-          ))}
-        </div>
+  if (authoring) {
+    return (
+      <section className="game">
+        <button className="back" onClick={() => setAuthoring(false)}>← 문제 목록</button>
+        <h2>🙆 몸으로 말해요 출제</h2>
+        <ActAuthor code={code} teamId={teamId} onDone={() => { setAuthoring(false); refresh() }} />
+      </section>
+    )
+  }
 
-        <h2 className="section">전체 대결</h2>
-        <p className="guide">
-          모든 팀이 같은 문제 {CONTEST_SIZE}개를 풉니다. 팀당 한 번만 도전할 수 있고 점수는 순위에 더해집니다. 성경 퀴즈는 문제마다 {SCORE.bibleQuiz}점,
-          초성 퀴즈는 힌트 없이 맞히면 {SCORE.chosungNoHint}점, 힌트를 보고 맞히면 {SCORE.chosungHint}점입니다.
-        </p>
-        <div className="game-list">
-          {CONTEST_GAMES.map((g) => {
-            const rec = contest[g.id]
-            const finished = rec?.index >= CONTEST_SIZE
+  const mine = data.quizzes.find((q) => q.kind === 'act' && q.author_team === teamId)
+
+  return (
+    <>
+      <p className="guide">
+        본부가 낸 문제를 모든 팀이 풉니다. 맞히면 문제에 적힌 점수가 순위에 더해집니다. 줄을 서서 기다리는 동안 작은 목소리로 의논합니다.
+      </p>
+      {QUIZ_KINDS.map((kind) => {
+        const list = data.quizzes.filter((q) => q.kind === kind.id && q.status !== 'pending' && q.author_team !== teamId)
+        return (
+          <section key={kind.id}>
+            <h2 className="section">{kind.icon} {kind.title}</h2>
+            <p className="guide">{kind.desc}</p>
+            {kind.id === 'act' && <ActStatus data={data} mine={mine} onAuthor={() => setAuthoring(true)} />}
+            {!list.length && <p className="guide empty">아직 출제된 문제가 없습니다.</p>}
+            <div className="quiz-grid">
+              {list.map((q, i) => {
+                const result = resultOf(data, teamId, q.id)
+                const state = result ? (result.score > 0 ? 'solved' : 'failed') : q.status === 'closed' ? 'closed' : ''
+                return (
+                  <button key={q.id} className={`quiz-chip ${state}`} onClick={() => setSelected(q.id)}>
+                    <b>{i + 1}</b>
+                    <small>{result ? (result.score > 0 ? `+${result.score}` : '오답') : q.status === 'closed' ? '마감' : `${q.points}점`}</small>
+                  </button>
+                )
+              })}
+            </div>
+          </section>
+        )
+      })}
+    </>
+  )
+}
+
+function QuizPhoto({ code, quizId }) {
+  const [src, setSrc] = useState(null)
+  useEffect(() => {
+    let alive = true
+    rpc('evm_quiz_photo', { p_code: code, p_id: quizId }).then((photo) => alive && setSrc(photo)).catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [code, quizId])
+  if (!src) return <div className="photo-wait">사진을 불러오는 중입니다</div>
+  return <img className="sheet-photo" src={src} alt="몸으로 표현한 사진" />
+}
+
+function QuizCard({ code, teamId, quiz, result, refresh }) {
+  const [text, setText] = useState('')
+  const [hint, setHint] = useState(false)
+  const [message, setMessage] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [reply, setReply] = useState(null) // 서버 채점 결과
+  const done = Boolean(result) || quiz.status === 'closed'
+
+  async function send(value) {
+    setBusy(true)
+    setMessage('')
+    try {
+      const res = await rpc('evm_quiz_answer', { p_code: code, p_team: teamId, p_id: quiz.id, p_text: value, p_hint: hint })
+      setReply(res)
+      if (res.ok || quiz.kind === 'bible') refresh()
+      else setMessage('정답이 아닙니다. 다시 생각합니다.')
+    } catch (err) {
+      setMessage(errorText(err))
+      refresh()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const author = TEAMS.find((t) => t.id === quiz.author_team)
+  const correctIndex = reply?.answer ?? quiz.answer
+
+  return (
+    <div className="card">
+      <p className="hint">
+        {quiz.points}점{author && ` · ${author.name} 출제`}
+        {quiz.kind === 'chosung' && quiz.hint && !done && ` · 힌트를 보면 ${Math.ceil(quiz.points / 2)}점`}
+      </p>
+      {quiz.kind === 'act' && <QuizPhoto code={code} quizId={quiz.id} />}
+      <p className={quiz.kind === 'chosung' ? 'big' : 'question'}>{quiz.body}</p>
+      {quiz.kind === 'chosung' && quiz.hint && (hint || done) && <p className="hint">힌트: {quiz.hint}</p>}
+
+      {quiz.kind === 'bible' && (
+        <div className="choices">
+          {quiz.choices.map((c, i) => {
+            const cls = !done ? '' : String(i) === String(correctIndex) ? 'right' : ''
             return (
-              <button key={g.id} className="game-card contest" onClick={() => setGame(g.id)}>
-                <span className="game-icon">{g.icon}</span>
-                <span>
-                  <b>{g.title}</b>
-                  <small>{g.desc}</small>
-                </span>
-                <span className="game-state">
-                  {finished ? `${rec.points}점` : rec?.index ? `${rec.index}/${CONTEST_SIZE}` : '도전'}
-                </span>
+              <button key={c} className={`choice ${cls}`} disabled={done || busy} onClick={() => send(String(i))}>
+                {c}
               </button>
             )
           })}
         </div>
-      </>
+      )}
+
+      {quiz.kind !== 'bible' && !done && (
+        <>
+          {quiz.kind === 'chosung' && quiz.hint && !hint && (
+            <button className="ghost" onClick={() => setHint(true)}>힌트 보기</button>
+          )}
+          <form className="login answer-form" onSubmit={(e) => { e.preventDefault(); if (text.trim()) send(text) }}>
+            <input value={text} onChange={(e) => setText(e.target.value)} placeholder="정답" aria-label="정답" autoComplete="off" />
+            <button className="primary" disabled={busy}>제출</button>
+          </form>
+          <p className="hint">띄어쓰기는 상관없습니다. 맞힐 때까지 다시 낼 수 있습니다.</p>
+        </>
+      )}
+
+      {message && <p className="error">{message}</p>}
+      {result && (
+        <p className="answer">{result.score > 0 ? `정답입니다. +${result.score}점` : '오답입니다. 이 문제는 한 번만 답할 수 있습니다.'}</p>
+      )}
+      {!result && quiz.status === 'closed' && <p className="hint">마감된 문제입니다.</p>}
+      {quiz.status === 'closed' && quiz.answer != null && quiz.kind !== 'bible' && <p className="hint">정답: {quiz.answer}</p>}
+    </div>
+  )
+}
+
+function ActStatus({ data, mine, onAuthor }) {
+  if (!mine) {
+    return (
+      <button className="game-card contest" onClick={onAuthor}>
+        <span className="game-icon">📸</span>
+        <span>
+          <b>우리 팀 문제 내기</b>
+          <small>몸으로 표현한 사진과 정답을 본부에 보냅니다. 다른 팀이 맞힐 때마다 우리 팀도 점수를 받습니다.</small>
+        </span>
+      </button>
     )
   }
-
-  const info = ALL_GAMES.find((g) => g.id === game)
-  const rec = contest[game] || { index: 0, correct: 0, points: 0 }
+  const bonus = data.scores.filter((s) => s.game_id.startsWith(`qa:${mine.id}:`))
+  const label = { pending: '본부 승인을 기다리는 중입니다.', draft: '본부가 보관 중입니다.', open: '출제되었습니다.', closed: '마감되었습니다.' }[mine.status]
   return (
-    <section className="game">
-      <button className="back" onClick={() => setGame(null)}>← 게임 목록</button>
-      <h2>{info.icon} {info.title}</h2>
-      {game === 'act' && <ActGame />}
-      {game === 'telepathy' && <TelepathyGame />}
-      {game === 'nonsense' && <NonsenseGame />}
-      {game === 'chosungFun' && <ChosungGame />}
-      {game === 'bibleFun' && <BibleGame />}
-      {game === 'bible' && <BibleContest rec={rec} onAnswer={(points) => onAnswer('bible', points)} />}
-      {game === 'chosung' && <ChosungContest rec={rec} onAnswer={(points) => onAnswer('chosung', points)} />}
-    </section>
+    <p className="act-status">
+      우리 팀 문제: {label}
+      {mine.status !== 'pending' && ` 맞힌 팀 ${bonus.length}팀 · 출제 점수 +${bonus.reduce((sum, s) => sum + s.score, 0)}점`}
+    </p>
   )
 }
 
-function ActGame() {
-  const [word, setWord] = useState(() => pickRandom(ACT_WORDS))
-  const [shown, setShown] = useState(false)
-  return (
-    <div className="card">
-      <p className="hint">표현할 사람만 화면을 봅니다. 말은 하지 않습니다.</p>
-      <p className="big">{shown ? word : '？'}</p>
-      <div className="row">
-        <button className="ghost" onClick={() => setShown(!shown)}>{shown ? '제시어 가리기' : '제시어 보기'}</button>
-        <button className="primary" onClick={() => { setWord(pickRandom(ACT_WORDS, word)); setShown(false) }}>다음 제시어</button>
-      </div>
-    </div>
-  )
-}
+function ActAuthor({ code, teamId, onDone }) {
+  const [photo, setPhoto] = useState(null)
+  const [answer, setAnswer] = useState('')
+  const [message, setMessage] = useState('')
+  const [busy, setBusy] = useState(false)
+  const fileRef = useRef(null)
 
-function TelepathyGame() {
-  const [pair, setPair] = useState(() => pickRandom(TELEPATHY))
-  return (
-    <div className="card">
-      <p className="hint">하나, 둘, 셋에 모두 동시에 하나를 말합니다. 전원이 같으면 성공입니다.</p>
-      <p className="versus"><span>{pair[0]}</span><i>vs</i><span>{pair[1]}</span></p>
-      <button className="primary" onClick={() => setPair(pickRandom(TELEPATHY, pair))}>다음 질문</button>
-    </div>
-  )
-}
-
-function NonsenseGame() {
-  const [item, setItem] = useState(() => pickRandom(NONSENSE))
-  const [shown, setShown] = useState(false)
-  return (
-    <div className="card">
-      <p className="question">{item.q}</p>
-      {shown && <p className="big">{item.a}</p>}
-      <div className="row">
-        {!shown && <button className="ghost" onClick={() => setShown(true)}>정답 보기</button>}
-        <button className="primary" onClick={() => { setItem(pickRandom(NONSENSE, item)); setShown(false) }}>다음 문제</button>
-      </div>
-    </div>
-  )
-}
-
-function ChosungGame() {
-  const [item, setItem] = useState(() => pickRandom(CHOSUNG_WORDS))
-  const [step, setStep] = useState(0) // 0 문제, 1 힌트, 2 정답
-  return (
-    <div className="card">
-      <p className="big">{toChosung(item.answer)}</p>
-      {step >= 1 && <p className="hint">힌트: {item.hint}</p>}
-      {step >= 2 && <p className="answer">정답: {item.answer}</p>}
-      <div className="row">
-        {step < 2 && <button className="ghost" onClick={() => setStep(step + 1)}>{step === 0 ? '힌트 보기' : '정답 보기'}</button>}
-        <button className="primary" onClick={() => { setItem(pickRandom(CHOSUNG_WORDS, item)); setStep(0) }}>다음 문제</button>
-      </div>
-    </div>
-  )
-}
-
-function BibleGame() {
-  const [item, setItem] = useState(() => pickRandom(BIBLE_QUIZ))
-  const [picked, setPicked] = useState(null)
-  return (
-    <div className="card">
-      <p className="question">{item.q}</p>
-      <div className="choices">
-        {item.choices.map((c, i) => {
-          const cls = picked === null ? '' : i === item.answer ? 'right' : i === picked ? 'wrong' : ''
-          return (
-            <button key={c} className={`choice ${cls}`} disabled={picked !== null} onClick={() => setPicked(i)}>
-              {c}
-            </button>
-          )
-        })}
-      </div>
-      {picked !== null && <p className="answer">{picked === item.answer ? '정답입니다.' : `정답은 ${item.choices[item.answer]}입니다.`}</p>}
-      <button className="primary" onClick={() => { setItem(pickRandom(BIBLE_QUIZ, item)); setPicked(null) }}>다음 문제</button>
-    </div>
-  )
-}
-
-function ContestResult({ rec }) {
-  return (
-    <div className="card">
-      <p className="big">{rec.points}점</p>
-      {rec.correct !== null && <p className="question">{CONTEST_SIZE}문제 중 {rec.correct}문제를 맞혔습니다.</p>}
-      <p className="hint">점수는 팀 순위에 더해집니다. 대결은 팀당 한 번만 도전할 수 있습니다.</p>
-    </div>
-  )
-}
-
-// 답을 고르는 즉시 기록한다. 화면을 나갔다 들어와도 같은 문제를 다시 풀 수 없다.
-function BibleContest({ rec, onAnswer }) {
-  const [answered, setAnswered] = useState(null) // { item, picked }
-  const item = answered?.item || BIBLE_CONTEST[rec.index]
-
-  if (!answered && rec.index >= CONTEST_SIZE) return <ContestResult rec={rec} />
-
-  function pick(i) {
-    setAnswered({ item, picked: i })
-    onAnswer(i === item.answer ? SCORE.bibleQuiz : 0)
+  async function onFile(e) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    try {
+      setPhoto(await compressPhoto(file))
+    } catch (err) {
+      setMessage(err.message)
+    }
   }
 
-  const number = answered ? rec.index : rec.index + 1
-  return (
-    <div className="card">
-      <p className="hint">{number} / {CONTEST_SIZE}</p>
-      <p className="question">{item.q}</p>
-      <div className="choices">
-        {item.choices.map((c, i) => {
-          const cls = !answered ? '' : i === item.answer ? 'right' : i === answered.picked ? 'wrong' : ''
-          return (
-            <button key={c} className={`choice ${cls}`} disabled={Boolean(answered)} onClick={() => pick(i)}>
-              {c}
-            </button>
-          )
-        })}
-      </div>
-      {answered && (
-        <>
-          <p className="answer">
-            {answered.picked === item.answer ? '정답입니다.' : `정답은 ${item.choices[item.answer]}입니다.`}
-          </p>
-          <button className="primary" onClick={() => setAnswered(null)}>
-            {rec.index >= CONTEST_SIZE ? '결과 보기' : '다음 문제'}
-          </button>
-        </>
-      )}
-    </div>
-  )
-}
-
-// 선생님이 정답 여부를 판정한다.
-function ChosungContest({ rec, onAnswer }) {
-  const [answered, setAnswered] = useState(null) // { item, ok }
-  const [hint, setHint] = useState(false)
-  const item = answered?.item || CHOSUNG_CONTEST[rec.index]
-
-  if (!answered && rec.index >= CONTEST_SIZE) return <ContestResult rec={rec} />
-
-  function judge(ok) {
-    const points = !ok ? 0 : hint ? SCORE.chosungHint : SCORE.chosungNoHint
-    setAnswered({ item, ok, points })
-    onAnswer(points)
+  async function submit() {
+    if (!photo || !answer.trim()) {
+      setMessage('사진과 정답을 모두 넣습니다.')
+      return
+    }
+    setBusy(true)
+    try {
+      await rpc('evm_act_submit', { p_code: code, p_team: teamId, p_photo: photo, p_answer: answer.trim() })
+      onDone()
+    } catch (err) {
+      setMessage(errorText(err))
+    } finally {
+      setBusy(false)
+    }
   }
 
-  const number = answered ? rec.index : rec.index + 1
   return (
     <div className="card">
-      <p className="hint">{number} / {CONTEST_SIZE} · 선생님이 정답을 확인합니다.</p>
-      <p className="big">{toChosung(item.answer)}</p>
-      {(hint || answered) && <p className="hint">힌트: {item.hint}</p>}
-      {!answered && (
-        <>
-          {!hint && <button className="ghost" onClick={() => setHint(true)}>힌트 보기(맞히면 {SCORE.chosungHint}점)</button>}
-          <div className="row">
-            <button className="ghost" onClick={() => judge(false)}>넘어가기</button>
-            <button className="primary" onClick={() => judge(true)}>맞혔습니다</button>
-          </div>
-        </>
-      )}
-      {answered && (
-        <>
-          <p className="answer">정답: {item.answer} · {answered.points}점</p>
-          <button className="primary" onClick={() => { setAnswered(null); setHint(false) }}>
-            {rec.index >= CONTEST_SIZE ? '결과 보기' : '다음 문제'}
-          </button>
-        </>
-      )}
+      <p className="hint">
+        제시어를 정하고 팀이 몸으로 표현한 모습을 찍습니다. 본부가 승인하면 다른 팀에게 출제됩니다. 다른 팀이 맞힐 때마다 우리 팀도 점수를 받으므로,
+        알아볼 수 있게 표현합니다. 팀당 한 문제만 낼 수 있습니다.
+      </p>
+      {photo && <img className="sheet-photo" src={photo} alt="찍은 사진" />}
+      <input ref={fileRef} type="file" accept="image/*" capture="environment" hidden onChange={onFile} />
+      <button className="ghost" onClick={() => fileRef.current.click()}>{photo ? '다시 찍기' : '사진 찍기'}</button>
+      <div className="login answer-form">
+        <input value={answer} onChange={(e) => setAnswer(e.target.value)} maxLength={40} placeholder="정답(낱말 하나)" aria-label="정답" autoComplete="off" />
+      </div>
+      {message && <p className="error">{message}</p>}
+      <button className="primary" disabled={busy} onClick={submit}>{busy ? '보내는 중입니다' : '본부에 보내기'}</button>
     </div>
   )
 }

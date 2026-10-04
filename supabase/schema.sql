@@ -47,6 +47,8 @@ create table if not exists evm_orders (
   created_at timestamptz not null default now()
 );
 
+-- 타임어택: 먼저 완료한 순서대로 30·20·10점, 그 뒤는 5점
+alter table evm_orders add column if not exists rush boolean not null default false;
 alter table evm_orders enable row level security;
 alter table evm_scores enable row level security;
 alter table evm_config enable row level security;
@@ -88,9 +90,16 @@ begin
       select json_agg(json_build_object('team_id', team_id, 'at', checked_at)) from evm_checkins), '[]'::json),
     'orders', coalesce((
       select json_agg(json_build_object(
-        'id', id, 'kind', kind, 'body', body, 'points', points, 'open', open, 'at', created_at,
+        'id', id, 'kind', kind, 'body', body, 'points', points, 'rush', rush, 'open', open, 'at', created_at,
         'answer', case when evm_login(p_code) = 'admin' then answer end
       ) order by id desc) from evm_orders), '[]'::json),
+    'quizzes', coalesce((
+      select json_agg(json_build_object(
+        'id', id, 'kind', kind, 'body', body, 'choices', choices, 'hint', hint, 'points', points,
+        'status', status, 'author_team', author_team,
+        'answer', case when evm_login(p_code) = 'admin' or status = 'closed' then answer end
+      ) order by id) from evm_quizzes
+      where evm_login(p_code) = 'admin' or status in ('open', 'closed', 'pending')), '[]'::json),
     'scores', coalesce((
       select json_agg(json_build_object('team_id', team_id, 'game_id', game_id, 'score', score)) from evm_scores), '[]'::json),
     'team_count', coalesce((select value::int from evm_config where key = 'team_count'), 6),
@@ -157,15 +166,16 @@ begin
 end $$;
 
 -- 지령 추가(본부). 정답 미션은 p_answer에 정답 낱말을 넣는다.
-create or replace function evm_order(p_code text, p_kind text, p_body text, p_answer text, p_points int) returns void
+drop function if exists evm_order(text, text, text, text, int);
+create or replace function evm_order(p_code text, p_kind text, p_body text, p_answer text, p_points int, p_rush boolean) returns void
 language plpgsql security definer set search_path = public as $$
 begin
   perform evm_require(p_code, true);
   if p_kind = 'answer' and coalesce(btrim(p_answer), '') = '' then
     raise exception 'EVM_NO_ANSWER' using errcode = 'P0001';
   end if;
-  insert into evm_orders (kind, body, answer, points)
-  values (p_kind, left(p_body, 200), case when p_kind = 'answer' then btrim(p_answer) end, p_points);
+  insert into evm_orders (kind, body, answer, points, rush)
+  values (p_kind, left(p_body, 200), case when p_kind = 'answer' then btrim(p_answer) end, p_points, coalesce(p_rush, false));
 end $$;
 
 create or replace function evm_order_close(p_code text, p_id bigint) returns void
@@ -187,23 +197,150 @@ begin
   end if;
   v_ok := regexp_replace(lower(coalesce(p_text, '')), '\s', '', 'g') = regexp_replace(lower(v.answer), '\s', '', 'g');
   if v_ok then
+    if v.rush then
+      v.points := coalesce((array[30, 20, 10])[1 + (select count(*) from evm_scores where game_id = 'order:' || v.id)::int], 5);
+    end if;
     insert into evm_scores (team_id, game_id, score) values (p_team, 'order:' || v.id, v.points)
     on conflict (team_id, game_id) do nothing;
   end if;
   return v_ok;
 end $$;
 
--- 대결 점수 기록. 이미 기록이 있으면 바꾸지 않는다(다시 풀어도 처음 점수가 남는다).
-create or replace function evm_score(p_code text, p_team int, p_game text, p_score int) returns void
+-- 퀴즈. 초성(chosung)·성경(bible)·넌센스(nonsense)는 본부가 출제하고,
+-- 몸으로 말해요(act)는 팀이 사진과 정답을 내면 본부가 승인해 출제한다.
+-- status: pending(승인 대기) → draft(보관) → open(출제) → closed(마감)
+create table if not exists evm_quizzes (
+  id bigint generated always as identity primary key,
+  kind text not null check (kind in ('chosung', 'bible', 'nonsense', 'act')),
+  body text not null,
+  choices json,
+  answer text not null,
+  hint text,
+  photo text,
+  author_team int check (author_team between 1 and 6),
+  points int not null default 10 check (points between 1 and 30),
+  status text not null default 'draft' check (status in ('pending', 'draft', 'open', 'closed')),
+  created_at timestamptz not null default now()
+);
+alter table evm_quizzes enable row level security;
+
+create or replace function evm_norm(p_text text) returns text
+language sql immutable as $$
+  select regexp_replace(lower(coalesce(p_text, '')), '\s', '', 'g')
+$$;
+
+create or replace function evm_quiz_add(
+  p_code text, p_kind text, p_body text, p_choices json, p_answer text, p_hint text, p_points int, p_open boolean
+) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform evm_require(p_code, true);
+  if p_kind = 'act' or coalesce(btrim(p_answer), '') = '' or coalesce(btrim(p_body), '') = '' then
+    raise exception 'EVM_BAD_QUIZ' using errcode = 'P0001';
+  end if;
+  insert into evm_quizzes (kind, body, choices, answer, hint, points, status)
+  values (p_kind, left(btrim(p_body), 300), p_choices, btrim(p_answer), nullif(btrim(coalesce(p_hint, '')), ''), p_points,
+          case when p_open then 'open' else 'draft' end);
+end $$;
+
+-- 기본 문제 묶음을 보관 상태로 넣는다. p_items: [{kind, body, choices, answer, hint}]
+create or replace function evm_quiz_seed(p_code text, p_items json) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform evm_require(p_code, true);
+  insert into evm_quizzes (kind, body, choices, answer, hint, status)
+  select e->>'kind', e->>'body', e->'choices', e->>'answer', e->>'hint', 'draft'
+  from json_array_elements(p_items) e
+  where e->>'kind' in ('chosung', 'bible', 'nonsense');
+end $$;
+
+create or replace function evm_quiz_set(p_code text, p_id bigint, p_status text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform evm_require(p_code, true);
+  update evm_quizzes set status = p_status where id = p_id;
+end $$;
+
+-- 보관 중인 문제를 한꺼번에 출제한다.
+create or replace function evm_quiz_open_all(p_code text, p_kind text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform evm_require(p_code, true);
+  update evm_quizzes set status = 'open' where kind = p_kind and status = 'draft';
+end $$;
+
+create or replace function evm_quiz_delete(p_code text, p_id bigint) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform evm_require(p_code, true);
+  delete from evm_scores where game_id = 'quiz:' || p_id or game_id like 'qa:' || p_id || ':%';
+  delete from evm_quizzes where id = p_id;
+end $$;
+
+-- 몸으로 말해요 출제(팀). 팀당 하나만 낼 수 있고 본부 승인 뒤에 출제된다.
+create or replace function evm_act_submit(p_code text, p_team int, p_photo text, p_answer text) returns void
 language plpgsql security definer set search_path = public as $$
 begin
   perform evm_require(p_code);
-  if p_game not in ('bible', 'chosung') then
-    raise exception 'EVM_BAD_GAME' using errcode = 'P0001';
+  if p_photo not like 'data:image/jpeg;base64,%' or length(p_photo) > 400000 then
+    raise exception 'EVM_BAD_PHOTO' using errcode = 'P0001';
   end if;
-  insert into evm_scores (team_id, game_id, score) values (p_team, p_game, p_score)
-  on conflict (team_id, game_id) do nothing;
+  if coalesce(btrim(p_answer), '') = '' then
+    raise exception 'EVM_BAD_QUIZ' using errcode = 'P0001';
+  end if;
+  if exists (select 1 from evm_quizzes where kind = 'act' and author_team = p_team) then
+    raise exception 'EVM_ACT_EXISTS' using errcode = 'P0001';
+  end if;
+  insert into evm_quizzes (kind, body, answer, photo, author_team, status)
+  values ('act', '사진 속 팀이 몸으로 표현한 것은 무엇입니까?', left(btrim(p_answer), 40), p_photo, p_team, 'pending');
 end $$;
+
+create or replace function evm_quiz_photo(p_code text, p_id bigint) returns text
+language plpgsql stable security definer set search_path = public as $$
+begin
+  perform evm_require(p_code);
+  return (select photo from evm_quizzes
+          where id = p_id and (status in ('open', 'closed') or evm_login(p_code) = 'admin'));
+end $$;
+
+-- 답안 제출과 채점. 성경 퀴즈(사지선다)는 한 번만, 나머지는 맞힐 때까지 낼 수 있다.
+-- 초성 퀴즈는 힌트를 보면 절반 점수. 몸으로 말해요는 맞힌 팀마다 출제 팀도 절반 점수를 받는다.
+create or replace function evm_quiz_answer(p_code text, p_team int, p_id bigint, p_text text, p_hint boolean) returns json
+language plpgsql security definer set search_path = public as $$
+declare q evm_quizzes%rowtype; v_ok boolean; v_points int := 0;
+begin
+  perform evm_require(p_code);
+  select * into q from evm_quizzes where id = p_id and status = 'open';
+  if not found then
+    raise exception 'EVM_QUIZ_CLOSED' using errcode = 'P0001';
+  end if;
+  if q.author_team = p_team then
+    raise exception 'EVM_OWN_QUIZ' using errcode = 'P0001';
+  end if;
+  if exists (select 1 from evm_scores where team_id = p_team and game_id = 'quiz:' || q.id) then
+    raise exception 'EVM_QUIZ_DONE' using errcode = 'P0001';
+  end if;
+  if q.kind = 'bible' then
+    v_ok := btrim(coalesce(p_text, '')) = q.answer;
+  else
+    v_ok := evm_norm(p_text) = evm_norm(q.answer);
+  end if;
+  if v_ok then
+    v_points := case when q.kind = 'chosung' and p_hint then (q.points + 1) / 2 else q.points end;
+  end if;
+  if v_ok or q.kind = 'bible' then
+    insert into evm_scores (team_id, game_id, score) values (p_team, 'quiz:' || q.id, v_points)
+    on conflict (team_id, game_id) do nothing;
+  end if;
+  if v_ok and q.author_team is not null then
+    insert into evm_scores (team_id, game_id, score) values (q.author_team, 'qa:' || q.id || ':' || p_team, (q.points + 1) / 2)
+    on conflict (team_id, game_id) do nothing;
+  end if;
+  return json_build_object('ok', v_ok, 'points', v_points,
+    'answer', case when q.kind = 'bible' then q.answer end);
+end $$;
+
+drop function if exists evm_score(text, int, text, int);
 
 -- 참가 팀 수(2~6). 말씀 조각 배분이 달라지므로 행사 시작 전에 정한다.
 create or replace function evm_set_teams(p_code text, p_count int) returns void
@@ -217,7 +354,7 @@ begin
   on conflict (key) do update set value = excluded.value;
 end $$;
 
--- 행사 뒤 사진과 기록을 모두 지운다.
+-- 사진과 기록을 모두 지운다. 본부가 출제한 퀴즈 문제는 남는다.
 create or replace function evm_wipe(p_code text) returns void
 language plpgsql security definer set search_path = public as $$
 begin
@@ -227,12 +364,17 @@ begin
   delete from evm_checkins where true;
   delete from evm_scores where true;
   delete from evm_orders where true;
+  -- 팀이 낸 몸으로 말해요 문제는 지우고, 본부가 출제한 문제는 남긴다.
+  delete from evm_quizzes where kind = 'act';
 end $$;
 
 revoke all on function evm_require(text, boolean) from public, anon, authenticated;
 grant execute on function
   evm_login(text), evm_state(text), evm_submit(text, int, text, text), evm_remove(text, int, text),
   evm_photo(text, int, text), evm_cheer(text, int, text), evm_checkin(text, int),
-  evm_notice(text, text), evm_wipe(text), evm_set_teams(text, int), evm_score(text, int, text, int),
-  evm_order(text, text, text, text, int), evm_order_close(text, bigint), evm_answer(text, int, bigint, text)
+  evm_notice(text, text), evm_wipe(text), evm_set_teams(text, int),
+  evm_quiz_add(text, text, text, json, text, text, int, boolean), evm_quiz_seed(text, json), evm_quiz_set(text, bigint, text),
+  evm_quiz_open_all(text, text), evm_quiz_delete(text, bigint), evm_act_submit(text, int, text, text),
+  evm_quiz_photo(text, bigint), evm_quiz_answer(text, int, bigint, text, boolean),
+  evm_order(text, text, text, text, int, boolean), evm_order_close(text, bigint), evm_answer(text, int, bigint, text)
 to anon, authenticated;

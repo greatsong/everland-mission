@@ -41,13 +41,19 @@ export const VERSES = [
   },
 ]
 
-// 점수. 대결 초성 퀴즈는 힌트 없이 맞히면 chosungNoHint, 힌트를 보고 맞히면 chosungHint.
-export const SCORE = { perMission: 10, perLine: 30, bibleQuiz: 5, chosungNoHint: 10, chosungHint: 5 }
+// 점수: 빙고 칸 하나, 빙고 한 줄. 퀴즈와 지령 점수는 본부가 문제마다 정한다.
+export const SCORE = { perMission: 10, perLine: 30 }
 
-// 전체 대결. 모든 팀이 같은 문제를 같은 순서로 한 번만 푼다. 두 목록 모두 CONTEST_SIZE개여야 한다.
-export const CONTEST_SIZE = 10
+export const QUIZ_KINDS = [
+  { id: 'chosung', icon: '🔤', title: '초성 퀴즈', desc: '초성을 보고 답을 입력합니다. 힌트를 보면 점수가 절반입니다.' },
+  { id: 'bible', icon: '✝️', title: '성경 퀴즈', desc: '넷 중 하나를 고릅니다. 문제마다 한 번만 답할 수 있습니다.' },
+  { id: 'nonsense', icon: '🤣', title: '넌센스 퀴즈', desc: '엉뚱한 답을 입력합니다.' },
+  { id: 'act', icon: '🙆', title: '몸으로 말해요', desc: '다른 팀이 몸으로 표현한 사진을 보고 답을 입력합니다.' },
+]
 
-export const BIBLE_CONTEST = [
+// 기본 문제 묶음. 본부 화면의 "기본 문제 불러오기"를 누르면 보관 상태로 들어간다.
+// 교회와 관련된 문제는 본부 화면에서 직접 추가한다.
+const SEED_BIBLE = [
   { q: '다음 중 예수님의 열두 제자가 아닌 사람은 누구입니까?', choices: ['베드로', '안드레', '바울', '도마'], answer: 2 },
   { q: '모세가 십계명을 받은 산은 어디입니까?', choices: ['갈멜산', '시내산', '감람산', '아라랏산'], answer: 1 },
   { q: '다윗의 아버지는 누구입니까?', choices: ['사무엘', '솔로몬', '엘리', '이새'], answer: 3 },
@@ -58,78 +64,6 @@ export const BIBLE_CONTEST = [
   { q: '예수님을 은 삼십에 판 제자는 누구입니까?', choices: ['가룟 유다', '빌립', '마태', '야고보'], answer: 0 },
   { q: '하나님이 요나에게 가라고 하신 도시는 어디입니까?', choices: ['바벨론', '다시스', '예루살렘', '니느웨'], answer: 3 },
   { q: '죽은 지 나흘 만에 예수님이 살리신 사람은 누구입니까?', choices: ['야이로', '나사로', '바디매오', '스데반'], answer: 1 },
-]
-
-export const CHOSUNG_CONTEST = [
-  { answer: '티익스프레스', hint: '에버랜드의 나무 롤러코스터' },
-  { answer: '임마누엘', hint: '하나님이 우리와 함께 계시다' },
-  { answer: '로스트밸리', hint: '기린과 코끼리를 가까이에서 보는 곳' },
-  { answer: '오병이어', hint: '떡 다섯 개와 물고기 두 마리' },
-  { answer: '아마존익스프레스', hint: '물이 튀는 보트 놀이기구' },
-  { answer: '사마리아사람', hint: '강도 만난 사람을 도와준 이웃' },
-  { answer: '주기도문', hint: '하늘에 계신 우리 아버지여' },
-  { answer: '갈릴리바다', hint: '예수님이 풍랑을 잔잔하게 하신 곳' },
-  { answer: '예루살렘', hint: '성전이 있던 도시' },
-  { answer: '선한목자', hint: '양을 위하여 목숨을 버리는 분' },
-]
-
-// 우리끼리 하는 게임. 결과를 전송하지 않으며 무작위로 나온다.
-export const CHOSUNG_WORDS = [
-  { answer: '판다', hint: '대나무를 먹는 동물' },
-  { answer: '기린', hint: '목이 긴 동물' },
-  { answer: '츄러스', hint: '설탕을 묻힌 긴 간식' },
-  { answer: '코끼리', hint: '코가 긴 동물' },
-  { answer: '호랑이', hint: '줄무늬가 있는 맹수' },
-  { answer: '펭귄', hint: '날지 못하고 헤엄치는 새' },
-  { answer: '원숭이', hint: '바나나를 좋아하는 동물' },
-  { answer: '얼룩말', hint: '흰색과 검은색 줄무늬' },
-  { answer: '홍학', hint: '분홍색이고 한 발로 서는 새' },
-  { answer: '바이킹', hint: '배 모양으로 흔들리는 놀이기구' },
-  { answer: '범퍼카', hint: '서로 부딪치며 타는 차' },
-  { answer: '퍼레이드', hint: '음악과 함께 줄지어 지나가는 행진' },
-  { answer: '불꽃놀이', hint: '밤하늘에 터지는 것' },
-  { answer: '아이스크림', hint: '차갑고 달콤한 간식' },
-  { answer: '핫도그', hint: '소시지를 꽂은 간식' },
-  { answer: '도시락', hint: '소풍 갈 때 싸 가는 것' },
-  { answer: '줄서기', hint: '놀이기구를 타려면 해야 하는 것' },
-  { answer: '기념사진', hint: '추억으로 남기려고 찍는 것' },
-  { answer: '다윗', hint: '골리앗을 이긴 소년' },
-  { answer: '노아', hint: '방주를 만든 사람' },
-  { answer: '모세', hint: '홍해를 건넌 지도자' },
-  { answer: '다니엘', hint: '사자 굴에서 살아난 사람' },
-  { answer: '요나', hint: '큰 물고기 배 속에 있던 사람' },
-  { answer: '삭개오', hint: '뽕나무에 올라간 사람' },
-  { answer: '베드로', hint: '물고기를 잡다가 제자가 된 사람' },
-  { answer: '마리아', hint: '예수님의 어머니' },
-  { answer: '십자가', hint: '교회 지붕 위에 있는 것' },
-  { answer: '찬양', hint: '하나님께 노래로 드리는 것' },
-  { answer: '성경책', hint: '하나님의 말씀이 적힌 책' },
-  { answer: '무지개', hint: '비가 그친 뒤 하늘에 생기는 것' },
-  { answer: '방주', hint: '노아가 만든 큰 배' },
-  { answer: '물맷돌', hint: '다윗이 골리앗에게 던진 것' },
-  { answer: '선생님', hint: '우리 팀을 인솔하는 분' },
-  { answer: '친구', hint: '오늘 함께 다니는 사람' },
-  { answer: '풀무불', hint: '다니엘의 세 친구가 던져진 곳' },
-  { answer: '겟세마네', hint: '예수님이 기도하신 동산' },
-  { answer: '산상수훈', hint: '예수님이 산에서 하신 설교' },
-  { answer: '홍해', hint: '모세가 지팡이를 들자 갈라진 바다' },
-  { answer: '사도행전', hint: '복음서 다음에 나오는 책' },
-  { answer: '달란트', hint: '주인이 종들에게 맡긴 것' },
-  { answer: '겨자씨', hint: '아주 작지만 크게 자라는 씨' },
-  { answer: '판다월드', hint: '에버랜드에서 판다가 사는 곳' },
-  { answer: '수륙양용차', hint: '땅과 물을 모두 다니는 차' },
-  { answer: '자유이용권', hint: '놀이기구를 마음껏 타는 표' },
-]
-
-export const ACT_WORDS = [
-  '판다', '기린', '코끼리', '펭귄', '원숭이', '사자', '호랑이', '토끼', '홍학', '캥거루', '악어', '뱀', '독수리', '거북이',
-  '롤러코스터 타기', '솜사탕 먹기', '사진 찍기', '줄 서기', '회전목마 타기', '범퍼카 운전하기', '바이킹 타기',
-  '아이스크림 먹기', '지도 보기', '귀신의 집 들어가기', '퍼레이드 구경하기', '무거운 가방 메기',
-  '기도하기', '찬양하기', '양치기', '물고기 잡기', '방주 만들기', '물맷돌 던지기', '홍해 건너기', '뽕나무 오르기',
-  '헌금하기', '성경책 읽기', '사자 굴에 들어가기', '나팔 불기',
-]
-
-export const BIBLE_QUIZ = [
   { q: '노아의 방주가 머문 산은 어디입니까?', choices: ['시내산', '아라랏산', '갈멜산', '모리아산'], answer: 1 },
   { q: '갈멜산에서 바알 선지자들과 대결한 선지자는 누구입니까?', choices: ['엘리사', '이사야', '엘리야', '예레미야'], answer: 2 },
   { q: '다니엘의 세 친구가 던져진 곳은 어디입니까?', choices: ['사자 굴', '풀무불', '깊은 우물', '감옥'], answer: 1 },
@@ -154,7 +88,7 @@ export const BIBLE_QUIZ = [
   { q: '마태복음 28장 20절에서 예수님은 언제까지 함께 계신다고 하셨습니까?', choices: ['사십 일 동안', '성전이 설 때까지', '세상 끝날까지', '오순절까지'], answer: 2 },
 ]
 
-export const NONSENSE = [
+const SEED_NONSENSE = [
   { q: '왕이 넘어지면?', a: '킹콩' },
   { q: '소가 웃으면?', a: '우하하' },
   { q: '오리가 얼면?', a: '언덕' },
@@ -173,11 +107,54 @@ export const NONSENSE = [
   { q: '딸기가 직장을 잃으면?', a: '딸기시럽' },
 ]
 
-export const TELEPATHY = [
-  ['짜장면', '짬뽕'], ['여름', '겨울'], ['강아지', '고양이'], ['치킨', '피자'],
-  ['바다', '산'], ['롤러코스터', '회전목마'], ['판다', '호랑이'], ['떡볶이', '라면'],
-  ['아침형', '저녁형'], ['초콜릿', '젤리'], ['축구', '피구'], ['솜사탕', '츄러스'],
-  ['사자', '기린'], ['물놀이', '눈싸움'], ['김밥', '샌드위치'], ['찬양', '율동'],
-  ['버스 앞자리', '버스 뒷자리'], ['콜라', '사이다'], ['숨바꼭질', '술래잡기'], ['수박', '딸기'],
-  ['하늘을 나는 능력', '투명해지는 능력'], ['국어', '수학'], ['놀이기구', '동물원'], ['햄버거', '핫도그'],
+// 초성 퀴즈: 성경 인물과 에버랜드
+const SEED_CHOSUNG = [
+  { answer: '아브라함', hint: '믿음의 조상' },
+  { answer: '요셉', hint: '채색옷을 입은 꿈꾸는 사람' },
+  { answer: '모세', hint: '홍해를 건넌 지도자' },
+  { answer: '여호수아', hint: '여리고 성을 무너뜨린 지도자' },
+  { answer: '기드온', hint: '삼백 용사와 함께 싸운 사사' },
+  { answer: '삼손', hint: '힘이 아주 센 사사' },
+  { answer: '사무엘', hint: '어릴 때 하나님의 부르심을 들은 사람' },
+  { answer: '다윗', hint: '골리앗을 이긴 소년' },
+  { answer: '솔로몬', hint: '하나님께 지혜를 구한 왕' },
+  { answer: '엘리야', hint: '갈멜산에서 불로 응답받은 선지자' },
+  { answer: '다니엘', hint: '사자 굴에서 살아난 사람' },
+  { answer: '에스더', hint: '민족을 구한 왕비' },
+  { answer: '요나', hint: '큰 물고기 배 속에 있던 사람' },
+  { answer: '마리아', hint: '예수님의 어머니' },
+  { answer: '세례요한', hint: '예수님께 세례를 준 사람' },
+  { answer: '베드로', hint: '물 위를 걷다가 빠진 제자' },
+  { answer: '삭개오', hint: '뽕나무에 올라간 사람' },
+  { answer: '나사로', hint: '죽은 지 나흘 만에 살아난 사람' },
+  { answer: '바울', hint: '다메섹으로 가는 길에 예수님을 만난 사람' },
+  { answer: '디모데', hint: '바울이 편지를 보낸 젊은 제자' },
+  { answer: '티익스프레스', hint: '에버랜드의 나무 롤러코스터' },
+  { answer: '로스트밸리', hint: '기린과 코끼리를 가까이에서 보는 곳' },
+  { answer: '아마존익스프레스', hint: '물이 튀는 보트 놀이기구' },
+  { answer: '판다월드', hint: '판다가 사는 곳' },
+  { answer: '사파리월드', hint: '사자와 호랑이를 보는 곳' },
+  { answer: '회전목마', hint: '빙글빙글 도는 놀이기구' },
+  { answer: '범퍼카', hint: '서로 부딪치며 타는 차' },
+  { answer: '퍼레이드', hint: '음악과 함께 줄지어 지나가는 행진' },
+  { answer: '츄러스', hint: '설탕을 묻힌 긴 간식' },
+  { answer: '자유이용권', hint: '놀이기구를 마음껏 타는 표' },
+]
+
+const CHOSUNG = 'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ'
+
+export function toChosung(word) {
+  return [...word]
+    .map((ch) => {
+      const code = ch.charCodeAt(0) - 0xac00
+      if (code < 0 || code > 11171) return ch
+      return CHOSUNG[Math.floor(code / 588)]
+    })
+    .join('')
+}
+
+export const SEED_QUIZ = [
+  ...SEED_CHOSUNG.map((w) => ({ kind: 'chosung', body: toChosung(w.answer), answer: w.answer, hint: w.hint })),
+  ...SEED_BIBLE.map((b) => ({ kind: 'bible', body: b.q, choices: b.choices, answer: String(b.answer) })),
+  ...SEED_NONSENSE.map((n) => ({ kind: 'nonsense', body: n.q, answer: n.a })),
 ]

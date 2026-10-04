@@ -68,12 +68,28 @@ export function missionInfo(missionId, orders = []) {
   return MISSIONS.find((m) => m.id === missionId) || { icon: '📷', title: '미션 사진' }
 }
 
+// 타임어택 점수: 먼저 완료한 순서대로 30·20·10점, 그 뒤는 5점. 순위가 없으면(미완료) 0점.
+export const RUSH_POINTS = [30, 20, 10]
+export const rushPoints = (rank) => (rank ? RUSH_POINTS[rank - 1] || 5 : 0)
+
+// 타임어택 사진 지령에서 팀의 제출 순위(1부터). 서버에 올라간 시각 기준이며 미제출이면 0.
+export function rushRank(data, orderId, teamId) {
+  const subs = (data?.submissions || [])
+    .filter((s) => s.mission_id === `order:${orderId}`)
+    .sort((a, b) => new Date(a.at) - new Date(b.at))
+  return subs.findIndex((s) => s.team_id === teamId) + 1
+}
+
 // 팀 하나의 점수 내역. data는 서버 상태, done은 그 팀의 완료 표시({ [missionId]: 참 })이다.
 export function teamScore(teamId, data, done) {
   const bingo = scoreOf(boardFor(teamId), done)
   let order = 0
   let quiz = 0
-  for (const o of data?.orders || []) if (o.kind === 'photo' && done[`order:${o.id}`]) order += o.points
+  for (const o of data?.orders || []) {
+    if (o.kind !== 'photo') continue
+    if (o.rush) order += rushPoints(rushRank(data, o.id, teamId))
+    else if (done[`order:${o.id}`]) order += o.points
+  }
   for (const s of data?.scores || []) {
     if (s.team_id !== teamId) continue
     if (s.game_id.startsWith('order:')) order += s.score
@@ -91,23 +107,4 @@ export function ranking(data, teams = TEAMS) {
 
 export function minutesAgo(iso, nowIso) {
   return Math.max(0, Math.round((new Date(nowIso) - new Date(iso)) / 60000))
-}
-
-const CHOSUNG = 'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ'
-
-export function toChosung(word) {
-  return [...word]
-    .map((ch) => {
-      const code = ch.charCodeAt(0) - 0xac00
-      if (code < 0 || code > 11171) return ch
-      return CHOSUNG[Math.floor(code / 588)]
-    })
-    .join('')
-}
-
-export function pickRandom(items, except) {
-  if (items.length < 2) return items[0]
-  let next = except
-  while (next === except) next = items[Math.floor(Math.random() * items.length)]
-  return next
 }

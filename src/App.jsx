@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { TEAMS, MISSIONS, CONTEST_SIZE } from './data.js'
+import { TEAMS, MISSIONS } from './data.js'
 import { rpc, BadCodeError, loadSession, saveSession, loadState, saveState, compressPhoto } from './store.js'
-import { boardFor, teamScore, doneByTeam, missionInfo, minutesAgo } from './logic.js'
+import { boardFor, teamScore, doneByTeam, missionInfo, minutesAgo, rushRank, rushPoints } from './logic.js'
 import { useRemote, usePhoto, Photo, VerseView, Ranking, teamsOf } from './shared.jsx'
 import Games from './Games.jsx'
 import Hq from './Hq.jsx'
@@ -9,7 +9,7 @@ import Show from './Show.jsx'
 
 const TABS = [
   { id: 'bingo', label: '빙고', icon: '🎯' },
-  { id: 'games', label: '줄 게임', icon: '🎲' },
+  { id: 'games', label: '퀴즈 대결', icon: '🎲' },
   { id: 'verse', label: '말씀', icon: '📖' },
   { id: 'all', label: '모두', icon: '🏆' },
 ]
@@ -122,6 +122,7 @@ function TeamHome({ session, onLeave, onLogout }) {
   const [state, setState] = useState(() => loadState(teamId))
   const [tab, setTab] = useState('bingo')
   const [notice, setNotice] = useState('')
+  const [inbox, setInbox] = useState(false)
   const { data, online, refresh } = useRemote(code, onLogout)
 
   const stateRef = useRef(state)
@@ -163,12 +164,6 @@ function TeamHome({ session, onLeave, onLogout }) {
         )
         changed = true
       }
-      for (const [id, rec] of Object.entries(stateRef.current.contest)) {
-        if (rec.synced || rec.index < CONTEST_SIZE) continue
-        await rpc('evm_score', { p_code: code, p_team: teamId, p_game: id, p_score: rec.points })
-        setState((p) => ({ ...p, contest: { ...p.contest, [id]: { ...p.contest[id], synced: true } } }))
-        changed = true
-      }
     } catch (err) {
       if (err instanceof BadCodeError) onLogout()
     } finally {
@@ -207,26 +202,10 @@ function TeamHome({ session, onLeave, onLogout }) {
     return merged
   }, [state, data, teamId])
 
-  // 대결 진행 상태: 기기 기록을 우선하고, 다른 기기에서 끝낸 대결은 서버 점수로 채운다.
-  const contest = useMemo(() => {
-    const merged = { ...state.contest }
-    for (const s of data?.scores || []) {
-      if (s.team_id === teamId && !s.game_id.startsWith('order:') && !(merged[s.game_id]?.index >= CONTEST_SIZE)) {
-        merged[s.game_id] = { index: CONTEST_SIZE, correct: null, points: s.score, synced: true }
-      }
-    }
-    return merged
-  }, [state.contest, data, teamId])
-
-  // 점수: 빙고와 사진 지령은 기기 기록 기준, 정답 지령은 서버 기록 기준, 대결은 기기 기록 기준.
-  const total = teamScore(teamId, { orders: data?.orders, scores: (data?.scores || []).filter((s) => s.game_id.startsWith('order:')) }, done)
-  const quiz = Object.values(contest).reduce((sum, r) => sum + (r.index >= CONTEST_SIZE ? r.points : 0), 0)
-  const { count, lines } = total
-  const score = total.score + quiz
-  const pending =
-    Object.values(state.done).filter((r) => !r.synced).length +
-    state.removed.length +
-    Object.values(state.contest).filter((r) => r.index >= CONTEST_SIZE && !r.synced).length
+  // 점수: 빙고와 사진 지령은 기기 기록 기준, 퀴즈·정답 지령·타임어택은 서버 기록 기준.
+  const total = teamScore(teamId, data, done)
+  const { count, lines, score } = total
+  const pending = Object.values(state.done).filter((r) => !r.synced).length + state.removed.length
 
   const counts = useMemo(() => {
     const map = doneByTeam(data?.submissions || [])
@@ -252,15 +231,6 @@ function TeamHome({ session, onLeave, onLogout }) {
     })
   }
 
-  function answerContest(gameId, points) {
-    setState((p) => {
-      const rec = p.contest[gameId] || { index: 0, correct: 0, points: 0, synced: false }
-      if (rec.index >= CONTEST_SIZE) return p
-      const next = { ...rec, index: rec.index + 1, correct: rec.correct + (points > 0 ? 1 : 0), points: rec.points + points }
-      return { ...p, contest: { ...p.contest, [gameId]: next } }
-    })
-  }
-
   async function checkin() {
     if (!confirm('팀 전원이 함께 있습니까?')) return
     try {
@@ -272,6 +242,8 @@ function TeamHome({ session, onLeave, onLogout }) {
   }
 
   const myCheckin = data?.checkins.find((c) => c.team_id === teamId)
+  // 아직 하지 않은 진행 중 지령 수
+  const todo = (data?.orders || []).filter((o) => o.open && !orderFinished(data, teamId, done, o)).length
 
   return (
     <div className="app" style={{ '--team': team.color }}>
@@ -290,6 +262,9 @@ function TeamHome({ session, onLeave, onLogout }) {
         <button className="checkin" onClick={checkin}>
           ✅ 인원 확인{myCheckin && data ? ` · ${minutesAgo(myCheckin.at, data.now)}분 전` : ''}
         </button>
+        <button className="checkin" onClick={() => setInbox(true)}>
+          🔔 알림{todo > 0 && <b className="badge">{todo}</b>}
+        </button>
         <span className={online ? 'net' : 'net off'}>
           {!online ? '연결 끊김 · 기록은 기기에 저장됩니다' : pending ? `올리는 중 ${pending}건` : '저장 완료'}
         </span>
@@ -298,12 +273,15 @@ function TeamHome({ session, onLeave, onLogout }) {
       {data?.notice?.body && <p className="hq-notice">📢 {data.notice.body}</p>}
       {notice && <p className="notice">{notice}</p>}
       <OrderAlert teamId={teamId} orders={data?.orders} onOpen={() => setTab('bingo')} />
+      {inbox && (
+        <Inbox data={data} teamId={teamId} done={done} onClose={() => setInbox(false)} onGo={() => { setInbox(false); setTab('bingo'); window.scrollTo(0, 0) }} />
+      )}
 
       <main className="body">
         {tab === 'bingo' && (
           <Bingo code={code} teamId={teamId} board={board} done={done} data={data} refresh={refresh} onCapture={capture} onRemove={remove} setNotice={setNotice} />
         )}
-        {tab === 'games' && <Games contest={contest} onAnswer={answerContest} />}
+        {tab === 'games' && <Games code={code} teamId={teamId} data={data} refresh={refresh} />}
         {tab === 'verse' && (
           <>
             <p className="guide">
@@ -400,19 +378,19 @@ function Bingo({ code, teamId, board, done, data, refresh, onCapture, onRemove, 
 
 // 본부 지령 목록. 사진 미션은 사진을 올리고, 정답 미션은 낱말을 입력한다.
 function Orders({ code, teamId, data, done, refresh, onSelect }) {
-  const orders = (data?.orders || []).filter((o) => o.open || done[`order:${o.id}`] || solved(data, teamId, o.id))
+  const orders = (data?.orders || []).filter((o) => o.open || orderFinished(data, teamId, done, o))
   if (!orders.length) return null
   return (
     <section className="orders">
       <h2 className="section">📢 본부 지령</h2>
       {orders.map((o) => {
         const key = `order:${o.id}`
-        const finished = o.kind === 'photo' ? Boolean(done[key]) : solved(data, teamId, o.id)
+        const finished = orderFinished(data, teamId, done, o)
         return (
           <div key={o.id} className={`order ${finished ? 'finished' : ''}`}>
             <p className="order-meta">
-              {o.kind === 'photo' ? '사진 미션' : '정답 미션'} · {o.points}점{!o.open && ' · 마감'}
-              {finished && <b> · 완료 ✓</b>}
+              {orderLabel(o)}{!o.open && ' · 마감'}
+              {finished && <b> · 완료 ✓{o.rush && ` ${orderRank(data, teamId, o)}등`}</b>}
             </p>
             <p className="order-body">{o.body}</p>
             {o.kind === 'photo' && o.open && (
@@ -425,6 +403,49 @@ function Orders({ code, teamId, data, done, refresh, onSelect }) {
         )
       })}
     </section>
+  )
+}
+
+function orderLabel(o) {
+  const kind = o.kind === 'photo' ? '사진 미션' : '정답 미션'
+  return o.rush ? `⏱ 타임어택 ${kind} · 먼저 한 순서대로 30·20·10점` : `${kind} · ${o.points}점`
+}
+
+function orderFinished(data, teamId, done, o) {
+  return o.kind === 'photo' ? Boolean(done[`order:${o.id}`]) : solved(data, teamId, o.id)
+}
+
+// 타임어택 지령에서 우리 팀의 순위. 아직 서버에 반영되지 않았으면 0.
+function orderRank(data, teamId, o) {
+  if (o.kind === 'photo') return rushRank(data, o.id, teamId)
+  const mine = data?.scores.find((s) => s.team_id === teamId && s.game_id === `order:${o.id}`)
+  return mine ? [30, 20, 10].indexOf(mine.score) + 1 || 4 : 0
+}
+
+// 알림함. 지나간 지령과 본부 알림을 다시 본다.
+function Inbox({ data, teamId, done, onClose, onGo }) {
+  const orders = data?.orders || []
+  return (
+    <div className="sheet-back" onClick={onClose}>
+      <div className="sheet inbox" onClick={(e) => e.stopPropagation()}>
+        <h2>🔔 알림</h2>
+        {data?.notice?.body && <p className="hq-notice">📢 {data.notice.body}</p>}
+        {!orders.length && !data?.notice?.body && <p className="guide">받은 알림이 없습니다.</p>}
+        {orders.map((o) => {
+          const finished = orderFinished(data, teamId, done, o)
+          return (
+            <div key={o.id} className={`inbox-item ${finished ? 'finished' : ''}`}>
+              <p className="order-meta">
+                {orderLabel(o)} · {finished ? '완료 ✓' : o.open ? '진행 중' : '마감'}
+              </p>
+              <p className="order-body">{o.body}</p>
+            </div>
+          )
+        })}
+        {orders.some((o) => o.open) && <button className="primary" onClick={onGo}>지령 하러 가기</button>}
+        <button className="ghost" onClick={onClose}>닫기</button>
+      </div>
+    </div>
   )
 }
 
@@ -498,7 +519,7 @@ function OrderAlert({ teamId, orders, onOpen }) {
       <div className="alert">
         <p className="alert-siren">🚨</p>
         <p className="alert-title">본부 지령 도착</p>
-        <p className="alert-meta">{newest.kind === 'photo' ? '사진 미션' : '정답 미션'} · {newest.points}점</p>
+        <p className="alert-meta">{orderLabel(newest)}</p>
         <p className="alert-body">{newest.body}</p>
         <button className="primary" onClick={close}>확인</button>
       </div>
