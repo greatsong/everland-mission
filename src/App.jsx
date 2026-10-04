@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { TEAMS, MISSIONS } from './data.js'
 import { rpc, BadCodeError, loadSession, saveSession, loadState, saveState, compressPhoto } from './store.js'
 import { boardFor, teamScore, doneByTeam, missionInfo, minutesAgo, rushRank, rushPoints } from './logic.js'
-import { useRemote, usePhoto, Photo, VerseView, Ranking, teamsOf } from './shared.jsx'
+import { useRemote, usePhoto, Photo, VerseView, Ranking, teamsOf, useLocationShare, LocationList, everlandMapUrl } from './shared.jsx'
 import Games from './Games.jsx'
 import Hq from './Hq.jsx'
 import Show from './Show.jsx'
@@ -124,6 +124,7 @@ function TeamHome({ session, onLeave, onLogout }) {
   const [notice, setNotice] = useState('')
   const [inbox, setInbox] = useState(false)
   const { data, online, refresh } = useRemote(code, onLogout)
+  const locate = useLocationShare(code, teamId)
 
   const stateRef = useRef(state)
   stateRef.current = state
@@ -290,7 +291,7 @@ function TeamHome({ session, onLeave, onLogout }) {
             <VerseView counts={counts} myTeamId={teamId} teams={teamsOf(data)} />
           </>
         )}
-        {tab === 'all' && <Everyone code={code} data={data} teamId={teamId} refresh={refresh} />}
+        {tab === 'all' && <Everyone code={code} data={data} teamId={teamId} refresh={refresh} locate={locate} />}
       </main>
 
       <nav className="tabs">
@@ -534,7 +535,7 @@ function SheetPhoto({ code, teamId, missionId, rec }) {
 
 const FEED_STEP = 6
 
-function Everyone({ code, data, teamId, refresh }) {
+function Everyone({ code, data, teamId, refresh, locate }) {
   const [limit, setLimit] = useState(FEED_STEP)
   if (!data) return <p className="guide">다른 팀의 기록을 불러오는 중입니다. 통신이 연결되어야 표시됩니다.</p>
 
@@ -552,6 +553,28 @@ function Everyone({ code, data, teamId, refresh }) {
     <>
       <h2 className="section">팀 순위</h2>
       <Ranking data={data} myTeamId={teamId} />
+      <h2 className="section">📍 우리 위치</h2>
+      <div className="locate">
+        <p className="guide">
+          위치 공유를 켜면 이 화면이 열려 있는 동안 1분마다 본부에 우리 팀 위치를 보냅니다. 본부가 팀의 위치를 확인하는 데 사용합니다.
+        </p>
+        <button className={locate.on ? 'ghost' : 'primary'} onClick={() => locate.toggle(!locate.on)}>
+          {locate.on ? '위치 공유 끄기' : '위치 공유 켜기'}
+        </button>
+        {locate.error && <p className="error">{locate.error}</p>}
+        {locate.on && locate.here && (
+          <a className="primary map-link" href={everlandMapUrl(locate.here.lat, locate.here.lng)} target="_blank" rel="noreferrer">
+            에버랜드 지도에서 우리 위치 보기
+          </a>
+        )}
+        {locate.on && !locate.here && !locate.error && <p className="guide">위치를 찾는 중입니다.</p>}
+      </div>
+      {data.share_locations && (
+        <>
+          <h2 className="section">📍 다른 팀 위치</h2>
+          <LocationList data={data} myTeamId={teamId} here={locate.here} />
+        </>
+      )}
       <h2 className="section">모든 팀의 사진</h2>
       {!feed.length && <p className="guide">아직 올라온 사진이 없습니다.</p>}
       <div className="photos">

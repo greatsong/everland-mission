@@ -124,3 +124,100 @@ export function Ranking({ data, myTeamId, showCheckin }) {
     </ol>
   )
 }
+
+// 에버랜드 공식 지도를 해당 좌표에 맞춰 연다.
+export const everlandMapUrl = (lat, lng) => `https://www.everland.com/everland/map?lat=${lat}&lng=${lng}`
+
+const LOCATE_MS = 60000
+const LOCATE_KEY = 'evm:v2:locate'
+
+// 위치 공유. 선생님이 켠 뒤에만 동작하고, 앱 화면이 열려 있는 동안 1분마다 본부로 보낸다.
+export function useLocationShare(code, teamId) {
+  const [on, setOn] = useState(() => {
+    try {
+      return localStorage.getItem(LOCATE_KEY) === 'on'
+    } catch {
+      return false
+    }
+  })
+  const [here, setHere] = useState(null) // { lat, lng, acc }
+  const [error, setError] = useState('')
+
+  const toggle = useCallback((next) => {
+    try {
+      localStorage.setItem(LOCATE_KEY, next ? 'on' : 'off')
+    } catch {
+      /* 저장이 막혀도 이번 화면에서는 동작한다 */
+    }
+    setError('')
+    setOn(next)
+  }, [])
+
+  useEffect(() => {
+    if (!on) return
+    if (!navigator.geolocation) {
+      setError('이 브라우저에서는 위치를 사용할 수 없습니다.')
+      return
+    }
+    let alive = true
+    const send = () => {
+      if (document.visibilityState !== 'visible') return
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          if (!alive) return
+          const next = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: Math.round(pos.coords.accuracy) }
+          setHere(next)
+          setError('')
+          rpc('evm_locate', { p_code: code, p_team: teamId, p_lat: next.lat, p_lng: next.lng, p_acc: next.acc }).catch(() => {})
+        },
+        (err) => alive && setError(err.code === 1 ? '위치 권한이 꺼져 있습니다. 브라우저 설정에서 위치를 허용합니다.' : '위치를 찾지 못했습니다.'),
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 },
+      )
+    }
+    send()
+    const timer = setInterval(send, LOCATE_MS)
+    document.addEventListener('visibilitychange', send)
+    return () => {
+      alive = false
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', send)
+    }
+  }, [on, code, teamId])
+
+  return { on, toggle, here, error }
+}
+
+// 두 좌표 사이 거리(미터)
+export function distanceM(a, b) {
+  const rad = Math.PI / 180
+  const x = (b.lng - a.lng) * rad * Math.cos(((a.lat + b.lat) / 2) * rad)
+  const y = (b.lat - a.lat) * rad
+  return Math.round(Math.sqrt(x * x + y * y) * 6371000)
+}
+
+// 팀 위치 목록. 팀 이름을 누르면 에버랜드 공식 지도가 그 위치에서 열린다.
+export function LocationList({ data, myTeamId, here }) {
+  const teams = teamsOf(data)
+  const rows = teams.map((t) => ({ team: t, loc: data.locations.find((l) => l.team_id === t.id) }))
+  if (!rows.some((r) => r.loc)) return <p className="guide">아직 위치를 보낸 팀이 없습니다.</p>
+  return (
+    <ul className="loc-list">
+      {rows.map(({ team, loc }) => (
+        <li key={team.id}>
+          <span className="rank-team" style={{ background: team.color }}>{team.name}</span>
+          {loc ? (
+            <>
+              <span className="rank-detail">
+                {minutesAgo(loc.at, data.now)}분 전{loc.acc ? ` · 오차 약 ${Math.round(loc.acc)}m` : ''}
+                {here && team.id !== myTeamId && <small>우리 팀에서 약 {distanceM(here, loc)}m</small>}
+              </span>
+              <a href={everlandMapUrl(loc.lat, loc.lng)} target="_blank" rel="noreferrer">지도에서 보기</a>
+            </>
+          ) : (
+            <span className="rank-detail">위치 기록 없음</span>
+          )}
+        </li>
+      ))}
+    </ul>
+  )
+}

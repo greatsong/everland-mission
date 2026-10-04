@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { TEAMS, MISSIONS, QUIZ_KINDS, SEED_QUIZ, toChosung } from './data.js'
 import { rpc } from './store.js'
 import { doneByTeam, missionInfo, rushRank } from './logic.js'
-import { useRemote, Photo, VerseView, Ranking, teamsOf } from './shared.jsx'
+import { useRemote, Photo, VerseView, Ranking, teamsOf, LocationList } from './shared.jsx'
 
 // 본부 화면. 본부 코드로 입장한 사람만 사용한다.
 export default function Hq({ session, onLogout }) {
@@ -85,6 +85,20 @@ export default function Hq({ session, onLogout }) {
                 </button>
               ))}
               <small>말씀 조각 배분이 달라지므로 행사 시작 전에 정합니다.</small>
+            </p>
+          </section>
+
+          <section>
+            <h2 className="section">📍 팀 위치</h2>
+            <p className="guide">
+              선생님이 팀 화면의 "모두" 탭에서 위치 공유를 켜면 표시됩니다. "지도에서 보기"를 누르면 에버랜드 공식 지도가 그 팀의 위치에서 열립니다.
+              팀 화면이 꺼져 있는 동안에는 위치가 갱신되지 않습니다.
+            </p>
+            <LocationList data={data} />
+            <p className="team-count">
+              팀끼리 서로의 위치 보기
+              <button className={data.share_locations ? 'on' : ''} onClick={() => run('evm_share_locations', { p_on: true }, '팀끼리 위치를 볼 수 있게 했습니다.')}>허용</button>
+              <button className={!data.share_locations ? 'on' : ''} onClick={() => run('evm_share_locations', { p_on: false }, '팀 위치를 본부에서만 보게 했습니다.')}>본부만</button>
             </p>
           </section>
 

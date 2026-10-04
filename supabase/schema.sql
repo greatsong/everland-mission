@@ -50,6 +50,15 @@ create table if not exists evm_orders (
 -- 타임어택: 먼저 완료한 순서대로 30·20·10점, 그 뒤는 5점
 alter table evm_orders add column if not exists rush boolean not null default false;
 alter table evm_orders enable row level security;
+-- 팀 위치(선생님 휴대폰이 위치 공유를 켠 동안 보낸 마지막 위치)
+create table if not exists evm_locations (
+  team_id int primary key check (team_id between 1 and 6),
+  lat double precision not null,
+  lng double precision not null,
+  acc real,
+  updated_at timestamptz not null default now()
+);
+alter table evm_locations enable row level security;
 alter table evm_scores enable row level security;
 alter table evm_config enable row level security;
 alter table evm_submissions enable row level security;
@@ -102,6 +111,13 @@ begin
       where evm_login(p_code) = 'admin' or status in ('open', 'closed', 'pending')), '[]'::json),
     'scores', coalesce((
       select json_agg(json_build_object('team_id', team_id, 'game_id', game_id, 'score', score)) from evm_scores), '[]'::json),
+    -- 팀 위치는 본부에만 보낸다. 본부가 허용하면(share_locations) 팀에게도 보낸다.
+    'share_locations', coalesce((select value from evm_config where key = 'share_locations'), 'off') = 'on',
+    'locations', coalesce((
+      select json_agg(json_build_object('team_id', team_id, 'lat', lat, 'lng', lng, 'acc', acc, 'at', updated_at))
+      from evm_locations
+      where evm_login(p_code) = 'admin'
+         or coalesce((select value from evm_config where key = 'share_locations'), 'off') = 'on'), '[]'::json),
     'team_count', coalesce((select value::int from evm_config where key = 'team_count'), 6),
     'now', now()
   );
@@ -342,6 +358,26 @@ end $$;
 
 drop function if exists evm_score(text, int, text, int);
 
+create or replace function evm_locate(p_code text, p_team int, p_lat double precision, p_lng double precision, p_acc real) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform evm_require(p_code);
+  if p_lat not between -90 and 90 or p_lng not between -180 and 180 then
+    raise exception 'EVM_BAD_LOCATION' using errcode = 'P0001';
+  end if;
+  insert into evm_locations (team_id, lat, lng, acc) values (p_team, p_lat, p_lng, p_acc)
+  on conflict (team_id) do update set lat = excluded.lat, lng = excluded.lng, acc = excluded.acc, updated_at = now();
+end $$;
+
+-- 팀끼리 서로의 위치를 볼 수 있게 할지(본부).
+create or replace function evm_share_locations(p_code text, p_on boolean) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform evm_require(p_code, true);
+  insert into evm_config (key, value) values ('share_locations', case when p_on then 'on' else 'off' end)
+  on conflict (key) do update set value = excluded.value;
+end $$;
+
 -- 참가 팀 수(2~6). 말씀 조각 배분이 달라지므로 행사 시작 전에 정한다.
 create or replace function evm_set_teams(p_code text, p_count int) returns void
 language plpgsql security definer set search_path = public as $$
@@ -364,6 +400,7 @@ begin
   delete from evm_checkins where true;
   delete from evm_scores where true;
   delete from evm_orders where true;
+  delete from evm_locations where true;
   -- 팀이 낸 몸으로 말해요 문제는 지우고, 본부가 출제한 문제는 남긴다.
   delete from evm_quizzes where kind = 'act';
 end $$;
@@ -373,6 +410,7 @@ grant execute on function
   evm_login(text), evm_state(text), evm_submit(text, int, text, text), evm_remove(text, int, text),
   evm_photo(text, int, text), evm_cheer(text, int, text), evm_checkin(text, int),
   evm_notice(text, text), evm_wipe(text), evm_set_teams(text, int),
+  evm_locate(text, int, double precision, double precision, real), evm_share_locations(text, boolean),
   evm_quiz_add(text, text, text, json, text, text, int, boolean), evm_quiz_seed(text, json), evm_quiz_set(text, bigint, text),
   evm_quiz_open_all(text, text), evm_quiz_delete(text, bigint), evm_act_submit(text, int, text, text),
   evm_quiz_photo(text, bigint), evm_quiz_answer(text, int, bigint, text, boolean),

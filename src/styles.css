@@ -231,3 +231,11 @@ h1, h2, p, figure { margin: 0; }
 .choice-row input[type='text'], .choice-row input:not([type]) { flex: 1; }
 .order-form .seg .primary, .order-form .seg .ghost { padding: 8px 16px; border-radius: 999px; font-size: 14px; }
 .order-form .seg .primary { background: var(--team); color: #fff; border-color: var(--team); }
+
+/* 위치 */
+.locate { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+.locate .guide, .locate .error { margin: 0; }
+.map-link { text-align: center; text-decoration: none; display: block; }
+.loc-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.loc-list li { display: flex; align-items: center; gap: 10px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; font-size: 14px; }
+.loc-list a { color: var(--team); white-space: nowrap; }
