@@ -221,7 +221,7 @@ export default function Hq({ session, onLogout }) {
           <section>
             <h2 className="section">위치</h2>
             <p className="guide">
-              선생님이 팀 화면의 "모두" 탭에서 위치 공유를 켜면 현황 탭의 지도에 표시됩니다. 미션을 완료할 때마다, 그리고 팀 화면이 열려 있는 동안 1분마다 갱신됩니다.
+              선생님이 팀 화면의 "모두" 탭에서 위치 공유를 켜면 현황 탭의 지도에 표시됩니다. 미션을 완료할 때마다, 그리고 팀 화면이 열려 있는 동안 3분마다 갱신됩니다.
               10분 넘게 갱신되지 않은 팀은 흐리게 표시됩니다.
             </p>
             <p className="team-count">

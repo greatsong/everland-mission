@@ -164,10 +164,10 @@ export function Ranking({ code, data, myTeamId, showCheckin }) {
 // 에버랜드 공식 지도를 해당 좌표에 맞춰 연다.
 export const everlandMapUrl = (lat, lng) => `https://www.everland.com/everland/map?lat=${lat}&lng=${lng}`
 
-const LOCATE_MS = 60000
+const LOCATE_MS = 180000
 const LOCATE_KEY = 'evm:v2:locate'
 
-// 위치 공유. 선생님이 켠 뒤에만 동작하고, 앱 화면이 열려 있는 동안 1분마다 본부로 보낸다.
+// 위치 공유. 선생님이 켠 뒤에만 동작하고, 앱 화면이 열려 있는 동안 3분마다 본부로 보낸다.
 export function useLocationShare(code, teamId) {
   const [on, setOn] = useState(() => {
     try {

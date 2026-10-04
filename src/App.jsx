@@ -633,7 +633,7 @@ function Everyone({ code, data, teamId, refresh, locate }) {
       <h2 className="section">📍 우리 위치</h2>
       <div className="locate">
         <p className="guide">
-          위치 공유를 켜면 미션을 완료할 때마다, 그리고 이 화면이 열려 있는 동안 1분마다 본부에 우리 팀 위치를 보냅니다.
+          위치 공유를 켜면 미션을 완료할 때마다, 그리고 이 화면이 열려 있는 동안 3분마다 본부에 우리 팀 위치를 보냅니다.
         </p>
         <button className={locate.on ? 'ghost' : 'primary'} onClick={() => locate.toggle(!locate.on)}>
           {locate.on ? '위치 공유 끄기' : '위치 공유 켜기'}
