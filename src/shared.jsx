@@ -101,7 +101,7 @@ export function VerseView({ counts, myTeamId, teams }) {
 }
 
 export function Ranking({ data, myTeamId, showCheckin }) {
-  const rows = ranking(data.submissions, teamsOf(data))
+  const rows = ranking(data, teamsOf(data))
   const checkins = Object.fromEntries(data.checkins.map((c) => [c.team_id, c.at]))
   return (
     <ol className="ranking">
@@ -111,6 +111,7 @@ export function Ranking({ data, myTeamId, showCheckin }) {
           <span className="rank-team" style={{ background: r.team.color }}>{r.team.name}</span>
           <span className="rank-detail">
             미션 {r.count} · 빙고 {r.lines}줄
+            <small>지령 {r.order}점 · 대결 {r.quiz}점</small>
             {showCheckin && (
               <small>
                 {checkins[r.team.id] ? `인원 확인 ${minutesAgo(checkins[r.team.id], data.now)}분 전` : '인원 확인 기록 없음'}

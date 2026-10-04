@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { TEAMS, MISSIONS, VERSES } from './data.js'
-import { doneByTeam, versePieces } from './logic.js'
+import { doneByTeam, versePieces, missionInfo } from './logic.js'
 import { useRemote, Photo, teamsOf } from './shared.jsx'
 
 const SLIDE_MS = 5000
@@ -29,7 +29,7 @@ export default function Show({ session, onLogout }) {
   const slide = slides[index % slides.length]
   return (
     <main className="show" onClick={() => setPaused(!paused)}>
-      {slide.type === 'photo' ? <PhotoSlide code={session.code} sub={slide.sub} /> : <VerseSlide data={data} />}
+      {slide.type === 'photo' ? <PhotoSlide code={session.code} sub={slide.sub} orders={data.orders} /> : <VerseSlide data={data} />}
       <p className="show-bar">
         {(index % slides.length) + 1} / {slides.length}
         {paused ? ' · 멈춤(화면을 누르면 다시 재생)' : ''}
@@ -39,14 +39,14 @@ export default function Show({ session, onLogout }) {
   )
 }
 
-function PhotoSlide({ code, sub }) {
+function PhotoSlide({ code, sub, orders }) {
   const team = TEAMS.find((t) => t.id === sub.team_id)
-  const mission = MISSIONS.find((m) => m.id === sub.mission_id)
+  const mission = missionInfo(sub.mission_id, orders)
   return (
     <>
-      <Photo key={`${sub.team_id}:${sub.mission_id}:${sub.at}`} code={code} sub={sub} alt={mission?.title || '미션 사진'} className="show-photo" />
+      <Photo key={`${sub.team_id}:${sub.mission_id}:${sub.at}`} code={code} sub={sub} alt={mission.title} className="show-photo" />
       <p className="show-caption">
-        <b style={{ background: team?.color }}>{team?.name}</b> {mission?.icon} {mission?.title}
+        <b style={{ background: team?.color }}>{team?.name}</b> {mission.icon} {mission.title}
       </p>
     </>
   )
@@ -54,7 +54,7 @@ function PhotoSlide({ code, sub }) {
 
 function VerseSlide({ data }) {
   const map = doneByTeam(data.submissions)
-  const counts = Object.fromEntries(TEAMS.map((t) => [t.id, Object.keys(map[t.id]).length]))
+  const counts = Object.fromEntries(TEAMS.map((t) => [t.id, MISSIONS.filter((m) => map[t.id][m.id]).length]))
   const words = versePieces(counts, teamsOf(data))
   return (
     <div className="show-verse">

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { TEAMS, MISSIONS } from './data.js'
+import { TEAMS, MISSIONS, CONTEST_SIZE } from './data.js'
 import { rpc, BadCodeError, loadSession, saveSession, loadState, saveState, compressPhoto } from './store.js'
-import { boardFor, scoreOf, doneByTeam, minutesAgo } from './logic.js'
+import { boardFor, teamScore, doneByTeam, missionInfo, minutesAgo } from './logic.js'
 import { useRemote, usePhoto, Photo, VerseView, Ranking, teamsOf } from './shared.jsx'
 import Games from './Games.jsx'
 import Hq from './Hq.jsx'
@@ -145,10 +145,28 @@ function TeamHome({ session, onLeave, onLogout }) {
       }
       for (const [id, rec] of Object.entries(stateRef.current.done)) {
         if (rec.synced) continue
-        await rpc('evm_submit', { p_code: code, p_team: teamId, p_mission: id, p_photo: rec.photo })
+        try {
+          await rpc('evm_submit', { p_code: code, p_team: teamId, p_mission: id, p_photo: rec.photo })
+        } catch (err) {
+          if (!String(err.message).includes('EVM_ORDER_CLOSED')) throw err
+          // 마감된 지령에 올린 사진은 기기에서 지운다.
+          setState((p) => {
+            const next = { ...p.done }
+            delete next[id]
+            return { ...p, done: next }
+          })
+          setNotice('마감된 지령입니다. 사진이 접수되지 않았습니다.')
+          continue
+        }
         setState((p) =>
           p.done[id]?.at === rec.at ? { ...p, done: { ...p.done, [id]: { ...rec, synced: Date.now() } } } : p,
         )
+        changed = true
+      }
+      for (const [id, rec] of Object.entries(stateRef.current.contest)) {
+        if (rec.synced || rec.index < CONTEST_SIZE) continue
+        await rpc('evm_score', { p_code: code, p_team: teamId, p_game: id, p_score: rec.points })
+        setState((p) => ({ ...p, contest: { ...p.contest, [id]: { ...p.contest[id], synced: true } } }))
         changed = true
       }
     } catch (err) {
@@ -189,12 +207,30 @@ function TeamHome({ session, onLeave, onLogout }) {
     return merged
   }, [state, data, teamId])
 
-  const { count, lines, score } = scoreOf(board, done)
-  const pending = Object.values(state.done).filter((r) => !r.synced).length + state.removed.length
+  // 대결 진행 상태: 기기 기록을 우선하고, 다른 기기에서 끝낸 대결은 서버 점수로 채운다.
+  const contest = useMemo(() => {
+    const merged = { ...state.contest }
+    for (const s of data?.scores || []) {
+      if (s.team_id === teamId && !s.game_id.startsWith('order:') && !(merged[s.game_id]?.index >= CONTEST_SIZE)) {
+        merged[s.game_id] = { index: CONTEST_SIZE, correct: null, points: s.score, synced: true }
+      }
+    }
+    return merged
+  }, [state.contest, data, teamId])
+
+  // 점수: 빙고와 사진 지령은 기기 기록 기준, 정답 지령은 서버 기록 기준, 대결은 기기 기록 기준.
+  const total = teamScore(teamId, { orders: data?.orders, scores: (data?.scores || []).filter((s) => s.game_id.startsWith('order:')) }, done)
+  const quiz = Object.values(contest).reduce((sum, r) => sum + (r.index >= CONTEST_SIZE ? r.points : 0), 0)
+  const { count, lines } = total
+  const score = total.score + quiz
+  const pending =
+    Object.values(state.done).filter((r) => !r.synced).length +
+    state.removed.length +
+    Object.values(state.contest).filter((r) => r.index >= CONTEST_SIZE && !r.synced).length
 
   const counts = useMemo(() => {
     const map = doneByTeam(data?.submissions || [])
-    const result = Object.fromEntries(TEAMS.map((t) => [t.id, Object.keys(map[t.id]).length]))
+    const result = Object.fromEntries(TEAMS.map((t) => [t.id, MISSIONS.filter((m) => map[t.id][m.id]).length]))
     result[teamId] = count
     return result
   }, [data, teamId, count])
@@ -202,6 +238,7 @@ function TeamHome({ session, onLeave, onLogout }) {
   function capture(missionId, photo) {
     setNotice('')
     setState((p) => ({
+      ...p,
       done: { ...p.done, [missionId]: { photo, at: Date.now(), synced: false } },
       removed: p.removed.filter((x) => x !== missionId),
     }))
@@ -211,7 +248,16 @@ function TeamHome({ session, onLeave, onLogout }) {
     setState((p) => {
       const next = { ...p.done }
       delete next[missionId]
-      return { done: next, removed: p.removed.includes(missionId) ? p.removed : [...p.removed, missionId] }
+      return { ...p, done: next, removed: p.removed.includes(missionId) ? p.removed : [...p.removed, missionId] }
+    })
+  }
+
+  function answerContest(gameId, points) {
+    setState((p) => {
+      const rec = p.contest[gameId] || { index: 0, correct: 0, points: 0, synced: false }
+      if (rec.index >= CONTEST_SIZE) return p
+      const next = { ...rec, index: rec.index + 1, correct: rec.correct + (points > 0 ? 1 : 0), points: rec.points + points }
+      return { ...p, contest: { ...p.contest, [gameId]: next } }
     })
   }
 
@@ -251,12 +297,13 @@ function TeamHome({ session, onLeave, onLogout }) {
 
       {data?.notice?.body && <p className="hq-notice">📢 {data.notice.body}</p>}
       {notice && <p className="notice">{notice}</p>}
+      <OrderAlert teamId={teamId} orders={data?.orders} onOpen={() => setTab('bingo')} />
 
       <main className="body">
         {tab === 'bingo' && (
-          <Bingo code={code} teamId={teamId} board={board} done={done} onCapture={capture} onRemove={remove} setNotice={setNotice} />
+          <Bingo code={code} teamId={teamId} board={board} done={done} data={data} refresh={refresh} onCapture={capture} onRemove={remove} setNotice={setNotice} />
         )}
-        {tab === 'games' && <Games />}
+        {tab === 'games' && <Games contest={contest} onAnswer={answerContest} />}
         {tab === 'verse' && (
           <>
             <p className="guide">
@@ -296,7 +343,7 @@ function Cell({ code, teamId, mission, rec, onClick }) {
   )
 }
 
-function Bingo({ code, teamId, board, done, onCapture, onRemove, setNotice }) {
+function Bingo({ code, teamId, board, done, data, refresh, onCapture, onRemove, setNotice }) {
   const [selected, setSelected] = useState(null)
   const [busy, setBusy] = useState(false)
   const fileRef = useRef(null)
@@ -318,6 +365,7 @@ function Bingo({ code, teamId, board, done, onCapture, onRemove, setNotice }) {
 
   return (
     <>
+      <Orders code={code} teamId={teamId} data={data} done={done} refresh={refresh} onSelect={setSelected} />
       <p className="guide">칸을 눌러 미션을 확인하고 사진을 찍습니다. 가로·세로·대각선 한 줄을 채우면 빙고입니다.</p>
       <div className="board">
         {board.map((m) => (
@@ -347,6 +395,114 @@ function Bingo({ code, teamId, board, done, onCapture, onRemove, setNotice }) {
         </div>
       )}
     </>
+  )
+}
+
+// 본부 지령 목록. 사진 미션은 사진을 올리고, 정답 미션은 낱말을 입력한다.
+function Orders({ code, teamId, data, done, refresh, onSelect }) {
+  const orders = (data?.orders || []).filter((o) => o.open || done[`order:${o.id}`] || solved(data, teamId, o.id))
+  if (!orders.length) return null
+  return (
+    <section className="orders">
+      <h2 className="section">📢 본부 지령</h2>
+      {orders.map((o) => {
+        const key = `order:${o.id}`
+        const finished = o.kind === 'photo' ? Boolean(done[key]) : solved(data, teamId, o.id)
+        return (
+          <div key={o.id} className={`order ${finished ? 'finished' : ''}`}>
+            <p className="order-meta">
+              {o.kind === 'photo' ? '사진 미션' : '정답 미션'} · {o.points}점{!o.open && ' · 마감'}
+              {finished && <b> · 완료 ✓</b>}
+            </p>
+            <p className="order-body">{o.body}</p>
+            {o.kind === 'photo' && o.open && (
+              <button className="primary" onClick={() => onSelect({ id: key, icon: '📢', title: o.body })}>
+                {finished ? '사진 확인·다시 찍기' : '사진 올리기'}
+              </button>
+            )}
+            {o.kind === 'answer' && o.open && !finished && <AnswerForm code={code} teamId={teamId} order={o} refresh={refresh} />}
+          </div>
+        )
+      })}
+    </section>
+  )
+}
+
+function solved(data, teamId, orderId) {
+  return Boolean(data?.scores.some((s) => s.team_id === teamId && s.game_id === `order:${orderId}`))
+}
+
+function AnswerForm({ code, teamId, order, refresh }) {
+  const [text, setText] = useState('')
+  const [message, setMessage] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  async function submit(e) {
+    e.preventDefault()
+    if (!text.trim()) return
+    setBusy(true)
+    try {
+      const ok = await rpc('evm_answer', { p_code: code, p_team: teamId, p_order: order.id, p_text: text })
+      if (ok) refresh()
+      else setMessage('정답이 아닙니다. 다시 생각합니다.')
+    } catch (err) {
+      setMessage(String(err.message).includes('EVM_ORDER_CLOSED') ? '마감된 지령입니다.' : '보내지 못했습니다. 통신 상태를 확인합니다.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <form className="login answer-form" onSubmit={submit}>
+        <input value={text} onChange={(e) => setText(e.target.value)} placeholder="정답 낱말" aria-label="정답" autoComplete="off" />
+        <button className="primary" disabled={busy}>제출</button>
+      </form>
+      <p className="hint">낱말 하나로 답합니다. 띄어쓰기는 상관없습니다.</p>
+      {message && <p className="error">{message}</p>}
+    </>
+  )
+}
+
+// 새 지령이 도착하면 화면 전체로 한 번 알린다.
+function OrderAlert({ teamId, orders, onOpen }) {
+  const key = `evm:v2:seen:${teamId}`
+  const [seen, setSeen] = useState(() => {
+    try {
+      return Number(localStorage.getItem(key)) || 0
+    } catch {
+      return 0
+    }
+  })
+  const fresh = (orders || []).filter((o) => o.open && o.id > seen)
+  const newest = fresh[0]
+
+  useEffect(() => {
+    if (newest) navigator.vibrate?.([200, 100, 200])
+  }, [newest?.id])
+
+  if (!newest) return null
+
+  function close() {
+    try {
+      localStorage.setItem(key, String(newest.id))
+    } catch {
+      /* 저장이 막히면 다음에 다시 표시된다 */
+    }
+    setSeen(newest.id)
+    onOpen()
+  }
+
+  return (
+    <div className="alert-back">
+      <div className="alert">
+        <p className="alert-siren">🚨</p>
+        <p className="alert-title">본부 지령 도착</p>
+        <p className="alert-meta">{newest.kind === 'photo' ? '사진 미션' : '정답 미션'} · {newest.points}점</p>
+        <p className="alert-body">{newest.body}</p>
+        <button className="primary" onClick={close}>확인</button>
+      </div>
+    </div>
   )
 }
 
@@ -380,13 +536,13 @@ function Everyone({ code, data, teamId, refresh }) {
       <div className="photos">
         {feed.map((sub) => {
           const team = TEAMS.find((t) => t.id === sub.team_id)
-          const mission = MISSIONS.find((m) => m.id === sub.mission_id)
+          const mission = missionInfo(sub.mission_id, data.orders)
           return (
             <figure key={`${sub.team_id}:${sub.mission_id}:${sub.at}`}>
-              <Photo code={code} sub={sub} alt={mission?.title || '미션 사진'} />
+              <Photo code={code} sub={sub} alt={mission.title} />
               <figcaption>
                 <span>
-                  <b style={{ color: team?.color }}>{team?.name}</b> {mission?.icon} {mission?.title}
+                  <b style={{ color: team?.color }}>{team?.name}</b> {mission.icon} {mission.title}
                 </span>
                 <button className="cheer" onClick={() => cheer(sub)} aria-label="응원하기">👏 {sub.cheers}</button>
               </figcaption>

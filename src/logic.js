@@ -59,11 +59,34 @@ export function doneByTeam(submissions) {
   return map
 }
 
-export function ranking(submissions, teams = TEAMS) {
-  const map = doneByTeam(submissions)
-  return teams.map((team) => ({ team, ...scoreOf(boardFor(team.id), map[team.id]) })).sort(
-    (a, b) => b.score - a.score || a.team.id - b.team.id,
-  )
+// 미션 표시 정보. 본부 지령(order:번호)은 지령 목록에서 찾는다.
+export function missionInfo(missionId, orders = []) {
+  if (missionId.startsWith('order:')) {
+    const order = orders.find((o) => `order:${o.id}` === missionId)
+    return { icon: '📢', title: order ? order.body : '본부 지령' }
+  }
+  return MISSIONS.find((m) => m.id === missionId) || { icon: '📷', title: '미션 사진' }
+}
+
+// 팀 하나의 점수 내역. data는 서버 상태, done은 그 팀의 완료 표시({ [missionId]: 참 })이다.
+export function teamScore(teamId, data, done) {
+  const bingo = scoreOf(boardFor(teamId), done)
+  let order = 0
+  let quiz = 0
+  for (const o of data?.orders || []) if (o.kind === 'photo' && done[`order:${o.id}`]) order += o.points
+  for (const s of data?.scores || []) {
+    if (s.team_id !== teamId) continue
+    if (s.game_id.startsWith('order:')) order += s.score
+    else quiz += s.score
+  }
+  return { ...bingo, order, quiz, score: bingo.score + order + quiz }
+}
+
+export function ranking(data, teams = TEAMS) {
+  const map = doneByTeam(data.submissions)
+  return teams
+    .map((team) => ({ team, ...teamScore(team.id, data, map[team.id]) }))
+    .sort((a, b) => b.score - a.score || a.team.id - b.team.id)
 }
 
 export function minutesAgo(iso, nowIso) {

@@ -51,8 +51,16 @@ function write(key, value) {
 export const loadSession = () => read(SESSION_KEY, null)
 export const saveSession = (session) => write(SESSION_KEY, session)
 
-// 팀 기록: { done: { [missionId]: { photo, at, synced } }, removed: [missionId] }
-export const loadState = (teamId) => ({ done: {}, removed: [], ...read(stateKey(teamId), {}) })
+// 팀 기록: { done: { [missionId]: { photo, at, synced } }, removed: [missionId],
+//           contest: { [gameId]: { index, correct, synced } } }
+export function loadState(teamId) {
+  const state = { done: {}, removed: [], contest: {}, ...read(stateKey(teamId), {}) }
+  // 점수 칸(points)이 없는 대결 기록은 문제당 5점으로 환산한다.
+  for (const rec of Object.values(state.contest)) {
+    if (typeof rec.points !== 'number') rec.points = (rec.correct || 0) * 5
+  }
+  return state
+}
 export const saveState = (teamId, state) => write(stateKey(teamId), state)
 
 // 서버에서 받은 사진은 메모리에만 둔다. 사진을 다시 찍으면 시각(at)이 바뀌어 새로 받는다.
