@@ -278,3 +278,44 @@ h1, h2, p, figure { margin: 0; }
 .team-map-box { height: 340px; border-radius: 16px; border: 1px solid var(--line); overflow: hidden; z-index: 0; }
 .map-pin { display: inline-block; min-width: 44px; padding: 3px 8px; border-radius: 999px; color: #fff; font-weight: 800; font-size: 12.5px; text-align: center; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4); white-space: nowrap; }
 .map-pin.stale { opacity: 0.5; }
+
+/* 본부 화면 구조 */
+.hq { max-width: 1100px; }
+.hq-tabs { position: sticky; top: 0; z-index: 6; display: flex; gap: 6px; overflow-x: auto; padding: 10px 0; margin-top: 8px; background: var(--bg); border-bottom: 1px solid var(--line); }
+.hq-tabs button { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; padding: 9px 16px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); font-size: 15px; }
+.hq-tabs button.on { background: var(--ink); border-color: var(--ink); color: #fff; font-weight: 700; }
+.badge.quiet { background: var(--line); color: var(--ink); }
+.hq-tabs button.on .badge.quiet { background: rgba(255, 255, 255, 0.25); color: #fff; }
+.hq-summary { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 16px; }
+.hq-summary div { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 8px; text-align: center; }
+.hq-summary b { display: block; font-size: 24px; }
+.hq-summary span { font-size: 12px; color: var(--muted); }
+.hq-summary .warn { border-color: #ffd43b; background: #fff9db; }
+.hq-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 760px) { .hq-grid { grid-template-columns: 1fr; } .hq-summary { grid-template-columns: repeat(3, 1fr); } }
+.hq .hq-grid section { margin-top: 20px; }
+.hq-grid .team-map-box { height: 380px; }
+.hq .notice { cursor: pointer; }
+
+.track-control { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 10px; font-size: 14px; }
+.track-control label { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.track-control input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--team); }
+.track-control input[type='range'] { flex: 1; min-width: 140px; accent-color: var(--team); }
+.track-time { white-space: nowrap; color: var(--muted); }
+.track-time b { color: var(--ink); }
+
+/* 팀 소개 */
+.avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 2px solid var(--line); flex-shrink: 0; }
+.avatar.empty { display: inline-flex; align-items: center; justify-content: center; color: #fff; font-weight: 800; border: 0; }
+.rank-name { font-size: 15px; }
+.rank-teachers { color: var(--ink); }
+.profile { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; margin-bottom: 14px; display: flex; flex-direction: column; gap: 10px; }
+.profile.done { flex-direction: row; align-items: center; padding: 8px 12px; font-size: 14px; }
+.profile.done .link { margin-left: auto; }
+.profile .order-meta { color: var(--muted); opacity: 1; }
+.profile-row { display: flex; gap: 10px; align-items: center; }
+.profile-row > input { flex: 1; min-width: 0; font: inherit; padding: 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+.profile-photo { width: 72px; height: 72px; border-radius: 50%; border: 2px dashed var(--team); overflow: hidden; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 22px; background: var(--bg); }
+.profile-photo img { width: 100%; height: 100%; object-fit: cover; }
+.profile-photo small { display: block; font-size: 10.5px; color: var(--muted); }
+.profile .error { margin: 0; }

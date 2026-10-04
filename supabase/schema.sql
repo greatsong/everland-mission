@@ -58,10 +58,29 @@ create table if not exists evm_locations (
   acc real,
   updated_at timestamptz not null default now()
 );
+-- 위치 기록(이동 경로). 팀마다 45초에 한 번까지만 쌓는다.
+create table if not exists evm_location_log (
+  id bigint generated always as identity primary key,
+  team_id int not null check (team_id between 0 and 6),
+  lat double precision not null,
+  lng double precision not null,
+  at timestamptz not null default now()
+);
+create index if not exists evm_location_log_team_at on evm_location_log (team_id, at);
+alter table evm_location_log enable row level security;
+
 -- 팀 번호 0은 본부 위치다.
 alter table evm_locations drop constraint if exists evm_locations_team_id_check;
 alter table evm_locations add constraint evm_locations_team_id_check check (team_id between 0 and 6);
 alter table evm_locations enable row level security;
+-- 팀 소개: 담당 선생님 이름과 팀 인증 사진(작은 그림)
+create table if not exists evm_teams (
+  team_id int primary key check (team_id between 1 and 6),
+  teachers text,
+  photo text,
+  updated_at timestamptz not null default now()
+);
+alter table evm_teams enable row level security;
 alter table evm_scores enable row level security;
 alter table evm_config enable row level security;
 alter table evm_submissions enable row level security;
@@ -112,6 +131,9 @@ begin
         'answer', case when evm_login(p_code) = 'admin' or status = 'closed' then answer end
       ) order by id) from evm_quizzes
       where evm_login(p_code) = 'admin' or status in ('open', 'closed', 'pending')), '[]'::json),
+    'teams', coalesce((
+      select json_agg(json_build_object('team_id', team_id, 'teachers', teachers,
+        'photo_at', case when photo is not null then updated_at end)) from evm_teams), '[]'::json),
     'scores', coalesce((
       select json_agg(json_build_object('team_id', team_id, 'game_id', game_id, 'score', score)) from evm_scores), '[]'::json),
     -- 팀 위치는 본부에만 보낸다. 본부가 허용하면(share_locations) 팀에게도 보낸다.
@@ -379,6 +401,19 @@ begin
   end if;
   insert into evm_locations (team_id, lat, lng, acc) values (p_team, p_lat, p_lng, p_acc)
   on conflict (team_id) do update set lat = excluded.lat, lng = excluded.lng, acc = excluded.acc, updated_at = now();
+  if not exists (select 1 from evm_location_log where team_id = p_team and at > now() - interval '45 seconds') then
+    insert into evm_location_log (team_id, lat, lng) values (p_team, p_lat, p_lng);
+  end if;
+end $$;
+
+-- 이동 경로(본부 전용). 시간 순서로 돌려준다.
+create or replace function evm_tracks(p_code text) returns json
+language plpgsql stable security definer set search_path = public as $$
+begin
+  perform evm_require(p_code, true);
+  return coalesce((
+    select json_agg(json_build_object('team_id', team_id, 'lat', lat, 'lng', lng, 'at', at) order by at)
+    from evm_location_log), '[]'::json);
 end $$;
 
 -- 팀끼리 서로의 위치를 볼 수 있게 할지(본부).
@@ -388,6 +423,26 @@ begin
   perform evm_require(p_code, true);
   insert into evm_config (key, value) values ('share_locations', case when p_on then 'on' else 'off' end)
   on conflict (key) do update set value = excluded.value;
+end $$;
+
+-- 팀 소개 저장. 사진을 보내지 않으면(null) 기존 사진을 유지한다.
+create or replace function evm_team_set(p_code text, p_team int, p_teachers text, p_photo text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform evm_require(p_code);
+  if p_photo is not null and (p_photo not like 'data:image/jpeg;base64,%' or length(p_photo) > 60000) then
+    raise exception 'EVM_BAD_PHOTO' using errcode = 'P0001';
+  end if;
+  insert into evm_teams (team_id, teachers, photo) values (p_team, left(btrim(coalesce(p_teachers, '')), 40), p_photo)
+  on conflict (team_id) do update
+    set teachers = excluded.teachers, photo = coalesce(excluded.photo, evm_teams.photo), updated_at = now();
+end $$;
+
+create or replace function evm_team_photo(p_code text, p_team int) returns text
+language plpgsql stable security definer set search_path = public as $$
+begin
+  perform evm_require(p_code);
+  return (select photo from evm_teams where team_id = p_team);
 end $$;
 
 -- 참가 팀 수(2~6). 말씀 조각 배분이 달라지므로 행사 시작 전에 정한다.
@@ -413,6 +468,8 @@ begin
   delete from evm_scores where true;
   delete from evm_orders where true;
   delete from evm_locations where true;
+  delete from evm_teams where true;
+  delete from evm_location_log where true;
   -- 팀이 낸 몸으로 말해요 문제는 지우고, 본부가 출제한 문제는 남긴다.
   delete from evm_quizzes where kind = 'act';
 end $$;
@@ -422,7 +479,8 @@ grant execute on function
   evm_login(text), evm_state(text), evm_submit(text, int, text, text), evm_remove(text, int, text),
   evm_photo(text, int, text), evm_cheer(text, int, text), evm_checkin(text, int),
   evm_notice(text, text), evm_wipe(text), evm_set_teams(text, int),
-  evm_locate(text, int, double precision, double precision, real), evm_share_locations(text, boolean),
+  evm_locate(text, int, double precision, double precision, real), evm_share_locations(text, boolean), evm_tracks(text),
+  evm_team_set(text, int, text, text), evm_team_photo(text, int),
   evm_quiz_add(text, text, text, json, text, text, int, boolean), evm_quiz_seed(text, json), evm_quiz_set(text, bigint, text),
   evm_quiz_open_all(text, text), evm_quiz_delete(text, bigint), evm_act_submit(text, int, text, text),
   evm_quiz_photo(text, bigint), evm_quiz_answer(text, int, bigint, text, boolean),

@@ -12,6 +12,9 @@ export default function Hq({ session, onLogout }) {
   const { data, online, refresh } = useRemote(code, onLogout)
   const [body, setBody] = useState('')
   const [message, setMessage] = useState('')
+  const [tab, setTab] = useState('status')
+  const [tracks, setTracks] = useState(null) // null이면 경로를 표시하지 않는다
+  const [until, setUntil] = useState(null) // 선택한 시각(ms). null이면 현재
   const locate = useLocationShare(code, 0) // 본부 위치(팀 번호 0)
 
   const doneMap = useMemo(() => doneByTeam(data?.submissions || []), [data])
@@ -19,6 +22,17 @@ export default function Hq({ session, onLogout }) {
     () => Object.fromEntries(TEAMS.map((t) => [t.id, MISSIONS.filter((m) => doneMap[t.id][m.id]).length])),
     [doneMap],
   )
+
+  // 경로 보기를 켠 동안 서버 상태가 갱신될 때마다 경로도 다시 받는다.
+  const showTracks = tracks !== null
+  useEffect(() => {
+    if (!showTracks || role !== 'admin') return
+    let alive = true
+    rpc('evm_tracks', { p_code: code }).then((list) => alive && setTracks(list)).catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [showTracks, data, code, role])
 
   if (role !== 'admin') {
     return (
@@ -58,6 +72,18 @@ export default function Hq({ session, onLogout }) {
   }
 
   const teams = teamsOf(data)
+  const openOrders = data?.orders.filter((o) => o.open).length || 0
+  const pendingActs = data?.quizzes.filter((q) => q.status === 'pending').length || 0
+  const openQuizzes = data?.quizzes.filter((q) => q.status === 'open').length || 0
+  const located = data?.locations.filter((l) => l.team_id !== 0).length || 0
+
+  const TABS = [
+    { id: 'status', label: '현황', icon: '📊' },
+    { id: 'orders', label: '지령·알림', icon: '📢', badge: openOrders },
+    { id: 'quiz', label: '퀴즈 출제', icon: '🎲', badge: pendingActs, alert: pendingActs > 0 },
+    { id: 'photos', label: '사진·말씀', icon: '🖼️', badge: data?.submissions.length || 0 },
+    { id: 'settings', label: '설정', icon: '⚙️' },
+  ]
 
   return (
     <div className="hq">
@@ -68,63 +94,55 @@ export default function Hq({ session, onLogout }) {
         <a href="#">팀 화면</a>
       </header>
 
-      {message && <p className="notice">{message}</p>}
+      <nav className="hq-tabs">
+        {TABS.map((t) => (
+          <button key={t.id} className={tab === t.id ? 'on' : ''} onClick={() => setTab(t.id)}>
+            <span>{t.icon}</span> {t.label}
+            {t.badge > 0 && <b className={`badge ${t.alert ? '' : 'quiet'}`}>{t.badge}</b>}
+          </button>
+        ))}
+      </nav>
+
+      {message && <p className="notice" onClick={() => setMessage('')}>{message}</p>}
       {!data && <p className="guide">불러오는 중입니다.</p>}
 
-      {data && (
+      {data && tab === 'status' && (
         <>
+          <div className="hq-summary">
+            <div><b>{data.submissions.length}</b><span>올라온 사진</span></div>
+            <div><b>{openOrders}</b><span>진행 중 지령</span></div>
+            <div><b>{openQuizzes}</b><span>출제 중 퀴즈</span></div>
+            <div className={pendingActs ? 'warn' : ''}><b>{pendingActs}</b><span>승인 대기</span></div>
+            <div><b>{located}/{teams.length}</b><span>위치 보낸 팀</span></div>
+          </div>
+          <div className="hq-grid">
+            <section>
+              <h2 className="section">📍 팀 위치</h2>
+              <Suspense fallback={<p className="guide">지도를 불러오는 중입니다.</p>}>
+                <TeamMap data={data} here={locate.here} myTeamId={0} tracks={tracks} until={until} />
+              </Suspense>
+              <TrackControl tracks={tracks} until={until} setUntil={setUntil} onToggle={(on) => { setTracks(on ? [] : null); setUntil(null) }} />
+              <LocationList data={data} />
+            </section>
+            <section>
+              <h2 className="section">🏆 팀 순위</h2>
+              <Ranking code={code} data={data} showCheckin />
+            </section>
+          </div>
           <section>
-            <h2 className="section">팀 순위</h2>
-            <Ranking data={data} showCheckin />
-            <p className="team-count">
-              참가 팀 수
-              {[5, 6].map((n) => (
-                <button
-                  key={n}
-                  className={data.team_count === n ? 'on' : ''}
-                  onClick={() => run('evm_set_teams', { p_count: n }, `참가 팀을 ${n}개로 정했습니다.`)}
-                >
-                  {n}팀
-                </button>
-              ))}
-              <small>말씀 조각 배분이 달라지므로 행사 시작 전에 정합니다.</small>
-            </p>
+            <h2 className="section">✅ 팀별 미션 달성 현황</h2>
+            <Matrix data={data} teams={teams} doneMap={doneMap} />
           </section>
+        </>
+      )}
 
-          <section>
-            <h2 className="section">📍 팀 위치</h2>
-            <p className="guide">
-              선생님이 팀 화면의 "모두" 탭에서 위치 공유를 켜면 표시됩니다. 미션을 완료할 때마다, 그리고 팀 화면이 열려 있는 동안 1분마다 갱신됩니다.
-              10분 넘게 갱신되지 않은 팀은 흐리게 표시됩니다. "지도에서 보기"를 누르면 에버랜드 공식 지도가 그 팀의 위치에서 열립니다.
-            </p>
-            <Suspense fallback={<p className="guide">지도를 불러오는 중입니다.</p>}>
-              <TeamMap data={data} here={locate.here} myTeamId={0} />
-            </Suspense>
-            <LocationList data={data} />
-            <p className="team-count">
-              본부 위치 표시
-              <button className={locate.on ? 'on' : ''} onClick={() => locate.toggle(true)}>켜기</button>
-              <button className={!locate.on ? 'on' : ''} onClick={() => locate.toggle(false)}>끄기</button>
-              <small>{locate.error || '이 기기의 위치를 지도에 "본부"로 표시합니다.'}</small>
-            </p>
-            <p className="team-count">
-              팀끼리 서로의 위치 보기
-              <button className={data.share_locations ? 'on' : ''} onClick={() => run('evm_share_locations', { p_on: true }, '팀끼리 위치를 볼 수 있게 했습니다.')}>허용</button>
-              <button className={!data.share_locations ? 'on' : ''} onClick={() => run('evm_share_locations', { p_on: false }, '팀 위치를 본부에서만 보게 했습니다.')}>본부만</button>
-            </p>
-          </section>
-
+      {data && tab === 'orders' && (
+        <>
           <section>
             <h2 className="section">📢 실시간 지령</h2>
             <OrderForm run={run} />
             <OrderList data={data} teams={teams} doneMap={doneMap} run={run} />
           </section>
-
-          <section>
-            <h2 className="section">🎲 퀴즈 출제</h2>
-            <QuizAdmin code={code} data={data} teams={teams} run={run} />
-          </section>
-
           <section>
             <h2 className="section">전체 알림(점수 없음)</h2>
             <p className="guide">현재 알림: {data.notice?.body ? data.notice.body : '없음'}</p>
@@ -136,19 +154,25 @@ export default function Hq({ session, onLogout }) {
               <button className="link" onClick={() => run('evm_notice', { p_body: '' }, '알림을 내렸습니다.')}>현재 알림 내리기</button>
             )}
           </section>
+        </>
+      )}
 
-          <section>
-            <h2 className="section">팀별 미션 달성 현황</h2>
-            <Matrix data={data} teams={teams} doneMap={doneMap} />
-          </section>
+      {data && tab === 'quiz' && (
+        <section>
+          <h2 className="section">🎲 퀴즈 출제</h2>
+          <QuizAdmin code={code} data={data} teams={teams} run={run} />
+        </section>
+      )}
 
+      {data && tab === 'photos' && (
+        <>
           <section>
-            <h2 className="section">말씀 조각</h2>
+            <h2 className="section">📖 말씀 조각</h2>
             <VerseView counts={counts} teams={teams} />
           </section>
-
           <section>
             <h2 className="section">올라온 사진 {data.submissions.length}장</h2>
+            {!data.submissions.length && <p className="guide">아직 올라온 사진이 없습니다.</p>}
             <div className="hq-photos">
               {data.submissions.map((sub) => {
                 const team = TEAMS.find((t) => t.id === sub.team_id)
@@ -173,12 +197,84 @@ export default function Hq({ session, onLogout }) {
               })}
             </div>
           </section>
+        </>
+      )}
 
+      {data && tab === 'settings' && (
+        <>
           <section>
-            <h2 className="section">행사 뒤 정리</h2>
-            <p className="guide">행사가 끝나고 사진을 내려받은 뒤 서버의 사진과 기록을 모두 지웁니다.</p>
+            <h2 className="section">참가 팀</h2>
+            <p className="team-count">
+              참가 팀 수
+              {[5, 6].map((n) => (
+                <button
+                  key={n}
+                  className={data.team_count === n ? 'on' : ''}
+                  onClick={() => run('evm_set_teams', { p_count: n }, `참가 팀을 ${n}개로 정했습니다.`)}
+                >
+                  {n}팀
+                </button>
+              ))}
+              <small>말씀 조각 배분이 달라지므로 행사 시작 전에 정합니다.</small>
+            </p>
+          </section>
+          <section>
+            <h2 className="section">위치</h2>
+            <p className="guide">
+              선생님이 팀 화면의 "모두" 탭에서 위치 공유를 켜면 현황 탭의 지도에 표시됩니다. 미션을 완료할 때마다, 그리고 팀 화면이 열려 있는 동안 1분마다 갱신됩니다.
+              10분 넘게 갱신되지 않은 팀은 흐리게 표시됩니다.
+            </p>
+            <p className="team-count">
+              본부 위치 표시
+              <button className={locate.on ? 'on' : ''} onClick={() => locate.toggle(true)}>켜기</button>
+              <button className={!locate.on ? 'on' : ''} onClick={() => locate.toggle(false)}>끄기</button>
+              <small>{locate.error || '이 기기의 위치를 지도에 "본부"로 표시합니다.'}</small>
+            </p>
+            <p className="team-count">
+              팀끼리 서로의 위치 보기
+              <button className={data.share_locations ? 'on' : ''} onClick={() => run('evm_share_locations', { p_on: true }, '팀끼리 위치를 볼 수 있게 했습니다.')}>허용</button>
+              <button className={!data.share_locations ? 'on' : ''} onClick={() => run('evm_share_locations', { p_on: false }, '팀 위치를 본부에서만 보게 했습니다.')}>본부만</button>
+            </p>
+          </section>
+          <section>
+            <h2 className="section">기록 지우기</h2>
+            <p className="guide">사진, 점수, 지령, 위치, 팀이 낸 몸으로 말해요 문제를 모두 지웁니다. 본부가 출제한 퀴즈 문제와 설정은 남습니다. 시험을 마친 뒤나 행사가 끝난 뒤에 사용합니다.</p>
             <button className="danger" onClick={wipe}>모든 사진과 기록 지우기</button>
           </section>
+        </>
+      )}
+    </div>
+  )
+}
+
+const clock = (ms) => new Date(ms).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })
+
+// 이동 경로 표시와 시각 선택. 막대를 왼쪽으로 옮기면 그 시각까지의 경로와 그때의 위치를 보여 준다.
+function TrackControl({ tracks, until, setUntil, onToggle }) {
+  const on = tracks !== null
+  const times = (tracks || []).map((p) => new Date(p.at).getTime())
+  const min = times.length ? Math.min(...times) : 0
+  const max = times.length ? Math.max(...times) : 0
+  return (
+    <div className="track-control">
+      <label>
+        <input type="checkbox" checked={on} onChange={(e) => onToggle(e.target.checked)} /> 이동 경로 보기
+      </label>
+      {on && !times.length && <span className="net">아직 쌓인 위치 기록이 없습니다.</span>}
+      {on && times.length > 0 && (
+        <>
+          <input
+            type="range"
+            min={min}
+            max={max}
+            step={30000}
+            value={until ?? max}
+            onChange={(e) => setUntil(Number(e.target.value) >= max ? null : Number(e.target.value))}
+            aria-label="시각 선택"
+          />
+          <span className="track-time">
+            {clock(min)} ~ <b>{until ? clock(until) : '지금'}</b>
+          </span>
         </>
       )}
     </div>

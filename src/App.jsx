@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { TEAMS, MISSIONS } from './data.js'
 import { rpc, BadCodeError, loadSession, saveSession, loadState, saveState, compressPhoto } from './store.js'
 import { boardFor, teamScore, doneByTeam, missionInfo, minutesAgo, rushRank, rushPoints } from './logic.js'
-import { useRemote, usePhoto, Photo, VerseView, Ranking, teamsOf, useLocationShare, LocationList, everlandMapUrl } from './shared.jsx'
+import { useRemote, usePhoto, Photo, VerseView, Ranking, teamsOf, useLocationShare, LocationList, everlandMapUrl, TeamAvatar, teachersOf } from './shared.jsx'
 import { lazy, Suspense } from 'react'
 import Games from './Games.jsx'
 
@@ -348,6 +348,7 @@ function Bingo({ code, teamId, board, done, data, refresh, onCapture, onRemove, 
 
   return (
     <>
+      <TeamProfile code={code} teamId={teamId} data={data} refresh={refresh} />
       <Orders code={code} teamId={teamId} data={data} done={done} refresh={refresh} onSelect={setSelected} />
       <p className="guide">칸을 눌러 미션을 확인하고 사진을 찍습니다. 가로·세로·대각선 한 줄을 채우면 빙고입니다.</p>
       <div className="board">
@@ -532,6 +533,78 @@ function OrderAlert({ teamId, orders, onOpen }) {
   )
 }
 
+// 팀 소개: 처음에 팀 인증 사진과 담당 선생님 이름을 넣는다. 순위와 본부 화면에 표시된다.
+function TeamProfile({ code, teamId, data, refresh }) {
+  const team = TEAMS.find((t) => t.id === teamId)
+  const profile = data?.teams?.find((t) => t.team_id === teamId)
+  const [editing, setEditing] = useState(false)
+  const [teachers, setTeachers] = useState('')
+  const [photo, setPhoto] = useState(null)
+  const [message, setMessage] = useState('')
+  const [busy, setBusy] = useState(false)
+  const fileRef = useRef(null)
+
+  if (!data) return null
+  const complete = Boolean(profile?.photo_at)
+
+  if (complete && !editing) {
+    return (
+      <div className="profile done">
+        <TeamAvatar code={code} data={data} team={team} />
+        <span><b>{team.name}</b>{teachersOf(data, teamId) && ` · ${teachersOf(data, teamId)}`}</span>
+        <button className="link" onClick={() => { setTeachers(profile.teachers || ''); setPhoto(null); setEditing(true) }}>수정</button>
+      </div>
+    )
+  }
+
+  async function onFile(e) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    try {
+      setPhoto(await compressPhoto(file, 200, 0.7))
+    } catch (err) {
+      setMessage(err.message)
+    }
+  }
+
+  async function save() {
+    if (!photo && !complete) {
+      setMessage('팀 인증 사진을 먼저 찍습니다.')
+      return
+    }
+    setBusy(true)
+    try {
+      await rpc('evm_team_set', { p_code: code, p_team: teamId, p_teachers: teachers, p_photo: photo })
+      setEditing(false)
+      setMessage('')
+      refresh()
+    } catch {
+      setMessage('저장하지 못했습니다. 통신 상태를 확인합니다.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="profile">
+      <p className="order-meta">우리 팀 소개 · 순위와 본부 화면에 표시됩니다</p>
+      <div className="profile-row">
+        <button className="profile-photo" onClick={() => fileRef.current.click()} aria-label="팀 인증 사진 찍기">
+          {photo ? <img src={photo} alt="찍은 팀 사진" /> : <span>📸<small>팀 사진</small></span>}
+        </button>
+        <input ref={fileRef} type="file" accept="image/*" capture="environment" hidden onChange={onFile} />
+        <input value={teachers} onChange={(e) => setTeachers(e.target.value)} maxLength={40} placeholder="담당 선생님 이름(예: 김○○, 이○○)" aria-label="담당 선생님 이름" />
+      </div>
+      {message && <p className="error">{message}</p>}
+      <div className="row">
+        {complete && <button className="ghost" onClick={() => setEditing(false)}>취소</button>}
+        <button className="primary" disabled={busy} onClick={save}>{busy ? '저장 중입니다' : '저장'}</button>
+      </div>
+    </div>
+  )
+}
+
 function SheetPhoto({ code, teamId, missionId, rec }) {
   const src = usePhoto(code, teamId, missionId, rec.at, rec.photo)
   return src ? <img className="sheet-photo" src={src} alt="올린 사진" /> : null
@@ -556,7 +629,7 @@ function Everyone({ code, data, teamId, refresh, locate }) {
   return (
     <>
       <h2 className="section">팀 순위</h2>
-      <Ranking data={data} myTeamId={teamId} />
+      <Ranking code={code} data={data} myTeamId={teamId} />
       <h2 className="section">📍 우리 위치</h2>
       <div className="locate">
         <p className="guide">

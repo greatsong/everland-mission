@@ -100,7 +100,40 @@ export function VerseView({ counts, myTeamId, teams }) {
   )
 }
 
-export function Ranking({ data, myTeamId, showCheckin }) {
+export const teachersOf = (data, teamId) => data.teams?.find((t) => t.team_id === teamId)?.teachers || ''
+
+// 팀 인증 사진은 바뀔 때만 다시 받는다(받은 시각별로 기억).
+const avatarCache = new Map()
+
+export function TeamAvatar({ code, data, team }) {
+  const profile = data.teams?.find((t) => t.team_id === team.id)
+  const key = profile?.photo_at ? `${team.id}:${profile.photo_at}` : null
+  const [src, setSrc] = useState(key ? avatarCache.get(key) : null)
+  useEffect(() => {
+    if (!key) {
+      setSrc(null)
+      return
+    }
+    if (avatarCache.has(key)) {
+      setSrc(avatarCache.get(key))
+      return
+    }
+    let alive = true
+    rpc('evm_team_photo', { p_code: code, p_team: team.id })
+      .then((photo) => {
+        avatarCache.set(key, photo)
+        if (alive) setSrc(photo)
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [code, key, team.id])
+  if (src) return <img className="avatar" src={src} alt={`${team.name} 인증 사진`} style={{ borderColor: team.color }} />
+  return <span className="avatar empty" style={{ background: team.color }}>{team.id}</span>
+}
+
+export function Ranking({ code, data, myTeamId, showCheckin }) {
   const rows = ranking(data, teamsOf(data))
   const checkins = Object.fromEntries(data.checkins.map((c) => [c.team_id, c.at]))
   return (
@@ -108,8 +141,11 @@ export function Ranking({ data, myTeamId, showCheckin }) {
       {rows.map((r, i) => (
         <li key={r.team.id} className={r.team.id === myTeamId ? 'me' : ''}>
           <span className="rank">{i + 1}</span>
-          <span className="rank-team" style={{ background: r.team.color }}>{r.team.name}</span>
+          <TeamAvatar code={code} data={data} team={r.team} />
           <span className="rank-detail">
+            <b className="rank-name" style={{ color: r.team.color }}>{r.team.name}</b>
+            {teachersOf(data, r.team.id) && <span className="rank-teachers"> {teachersOf(data, r.team.id)}</span>}
+            <br />
             미션 {r.count} · 빙고 {r.lines}줄
             <small>지령 {r.order}점 · 퀴즈 {r.quiz}점</small>
             {showCheckin && (
