@@ -3,7 +3,10 @@ import { TEAMS, MISSIONS } from './data.js'
 import { rpc, BadCodeError, loadSession, saveSession, loadState, saveState, compressPhoto } from './store.js'
 import { boardFor, teamScore, doneByTeam, missionInfo, minutesAgo, rushRank, rushPoints } from './logic.js'
 import { useRemote, usePhoto, Photo, VerseView, Ranking, teamsOf, useLocationShare, LocationList, everlandMapUrl } from './shared.jsx'
+import { lazy, Suspense } from 'react'
 import Games from './Games.jsx'
+
+const TeamMap = lazy(() => import('./TeamMap.jsx'))
 import Hq from './Hq.jsx'
 import Show from './Show.jsx'
 
@@ -217,6 +220,7 @@ function TeamHome({ session, onLeave, onLogout }) {
 
   function capture(missionId, photo) {
     setNotice('')
+    locate.ping()
     setState((p) => ({
       ...p,
       done: { ...p.done, [missionId]: { photo, at: Date.now(), synced: false } },
@@ -280,9 +284,9 @@ function TeamHome({ session, onLeave, onLogout }) {
 
       <main className="body">
         {tab === 'bingo' && (
-          <Bingo code={code} teamId={teamId} board={board} done={done} data={data} refresh={refresh} onCapture={capture} onRemove={remove} setNotice={setNotice} />
+          <Bingo code={code} teamId={teamId} board={board} done={done} data={data} refresh={() => { locate.ping(); refresh() }} onCapture={capture} onRemove={remove} setNotice={setNotice} />
         )}
-        {tab === 'games' && <Games code={code} teamId={teamId} data={data} refresh={refresh} />}
+        {tab === 'games' && <Games code={code} teamId={teamId} data={data} refresh={() => { locate.ping(); refresh() }} />}
         {tab === 'verse' && (
           <>
             <p className="guide">
@@ -556,7 +560,7 @@ function Everyone({ code, data, teamId, refresh, locate }) {
       <h2 className="section">📍 우리 위치</h2>
       <div className="locate">
         <p className="guide">
-          위치 공유를 켜면 이 화면이 열려 있는 동안 1분마다 본부에 우리 팀 위치를 보냅니다. 본부가 팀의 위치를 확인하는 데 사용합니다.
+          위치 공유를 켜면 미션을 완료할 때마다, 그리고 이 화면이 열려 있는 동안 1분마다 본부에 우리 팀 위치를 보냅니다.
         </p>
         <button className={locate.on ? 'ghost' : 'primary'} onClick={() => locate.toggle(!locate.on)}>
           {locate.on ? '위치 공유 끄기' : '위치 공유 켜기'}
@@ -571,7 +575,10 @@ function Everyone({ code, data, teamId, refresh, locate }) {
       </div>
       {data.share_locations && (
         <>
-          <h2 className="section">📍 다른 팀 위치</h2>
+          <h2 className="section">📍 모든 팀 위치</h2>
+          <Suspense fallback={<p className="guide">지도를 불러오는 중입니다.</p>}>
+            <TeamMap data={data} here={locate.here} myTeamId={teamId} />
+          </Suspense>
           <LocationList data={data} myTeamId={teamId} here={locate.here} />
         </>
       )}

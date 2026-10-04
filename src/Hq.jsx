@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { TEAMS, MISSIONS, QUIZ_KINDS, SEED_QUIZ, toChosung } from './data.js'
-import { rpc } from './store.js'
+import { rpc, suggestQuiz } from './store.js'
 import { doneByTeam, missionInfo, rushRank } from './logic.js'
-import { useRemote, Photo, VerseView, Ranking, teamsOf, LocationList } from './shared.jsx'
+import { useRemote, Photo, VerseView, Ranking, teamsOf, LocationList, useLocationShare } from './shared.jsx'
+
+const TeamMap = lazy(() => import('./TeamMap.jsx'))
 
 // 본부 화면. 본부 코드로 입장한 사람만 사용한다.
 export default function Hq({ session, onLogout }) {
@@ -10,6 +12,7 @@ export default function Hq({ session, onLogout }) {
   const { data, online, refresh } = useRemote(code, onLogout)
   const [body, setBody] = useState('')
   const [message, setMessage] = useState('')
+  const locate = useLocationShare(code, 0) // 본부 위치(팀 번호 0)
 
   const doneMap = useMemo(() => doneByTeam(data?.submissions || []), [data])
   const counts = useMemo(
@@ -91,10 +94,19 @@ export default function Hq({ session, onLogout }) {
           <section>
             <h2 className="section">📍 팀 위치</h2>
             <p className="guide">
-              선생님이 팀 화면의 "모두" 탭에서 위치 공유를 켜면 표시됩니다. "지도에서 보기"를 누르면 에버랜드 공식 지도가 그 팀의 위치에서 열립니다.
-              팀 화면이 꺼져 있는 동안에는 위치가 갱신되지 않습니다.
+              선생님이 팀 화면의 "모두" 탭에서 위치 공유를 켜면 표시됩니다. 미션을 완료할 때마다, 그리고 팀 화면이 열려 있는 동안 1분마다 갱신됩니다.
+              10분 넘게 갱신되지 않은 팀은 흐리게 표시됩니다. "지도에서 보기"를 누르면 에버랜드 공식 지도가 그 팀의 위치에서 열립니다.
             </p>
+            <Suspense fallback={<p className="guide">지도를 불러오는 중입니다.</p>}>
+              <TeamMap data={data} here={locate.here} myTeamId={0} />
+            </Suspense>
             <LocationList data={data} />
+            <p className="team-count">
+              본부 위치 표시
+              <button className={locate.on ? 'on' : ''} onClick={() => locate.toggle(true)}>켜기</button>
+              <button className={!locate.on ? 'on' : ''} onClick={() => locate.toggle(false)}>끄기</button>
+              <small>{locate.error || '이 기기의 위치를 지도에 "본부"로 표시합니다.'}</small>
+            </p>
             <p className="team-count">
               팀끼리 서로의 위치 보기
               <button className={data.share_locations ? 'on' : ''} onClick={() => run('evm_share_locations', { p_on: true }, '팀끼리 위치를 볼 수 있게 했습니다.')}>허용</button>
@@ -339,7 +351,7 @@ function QuizAdmin({ code, data, teams, run }) {
       {kind === 'act' ? (
         <p className="guide">팀이 사진과 정답을 보내면 여기에 표시됩니다. 승인하면 다른 팀에게 출제되고, 맞힌 팀은 10점, 출제한 팀은 맞힌 팀마다 5점을 받습니다.</p>
       ) : (
-        <QuizForm key={kind} kind={kind} run={run} />
+        <QuizForm key={kind} kind={kind} code={code} run={run} />
       )}
 
       <p className="quiz-tools">
@@ -357,15 +369,16 @@ function QuizAdmin({ code, data, teams, run }) {
           return (
             <li key={q.id} className={q.status === 'closed' ? 'closed' : ''}>
               <p className="order-meta">
-                {STATUS_LABEL[q.status]} · {q.points}점{author && ` · ${author.name} 출제`} · 맞힌 팀 {solvers.length}
+                <b className={`status-chip ${q.status}`}>{STATUS_LABEL[q.status]}</b> {q.points}점
+                {q.kind === 'bible' && (q.choices ? ' · 객관식' : ' · 단답형')}{author && ` · ${author.name} 출제`} · 맞힌 팀 {solvers.length}
                 {solvers.length > 0 && ` (${solvers.map((t) => t.name).join(', ')})`}
               </p>
               {q.kind === 'act' && <HqQuizPhoto code={code} quizId={q.id} />}
               <p className="order-body">
                 {q.body}
-                <small> 정답: {q.kind === 'bible' ? q.choices[Number(q.answer)] : q.answer}{q.hint && ` · 힌트: ${q.hint}`}</small>
+                <small> 정답: {q.choices ? q.choices[Number(q.answer)] : q.answer}{q.hint && ` · 힌트: ${q.hint}`}</small>
               </p>
-              {q.kind === 'bible' && <p className="order-meta">{q.choices.join(' / ')}</p>}
+              {q.choices && <p className="order-meta">{q.choices.join(' / ')}</p>}
               <p className="quiz-tools">
                 {q.status === 'pending' && <button className="link" onClick={() => run('evm_quiz_set', { p_id: q.id, p_status: 'open' }, '승인해 출제했습니다.')}>승인하고 출제</button>}
                 {q.status === 'draft' && <button className="link" onClick={() => run('evm_quiz_set', { p_id: q.id, p_status: 'open' }, '출제했습니다.')}>출제</button>}
@@ -398,70 +411,184 @@ function HqQuizPhoto({ code, quizId }) {
   return src ? <img className="quiz-photo" src={src} alt="팀이 보낸 사진" /> : null
 }
 
-function QuizForm({ kind, run }) {
-  const [body, setBody] = useState('')
-  const [answer, setAnswer] = useState('')
-  const [hint, setHint] = useState('')
-  const [choices, setChoices] = useState(['', '', '', ''])
-  const [correct, setCorrect] = useState(0)
+const emptyDraft = { body: '', answer: '', hint: '', choices: ['', '', '', ''], correct: 0 }
+
+// 입력한 내용을 서버 함수 인자로 바꾼다. 빠진 칸이 있으면 null.
+function draftArgs(kind, mode, d) {
+  if (kind === 'chosung') {
+    if (!d.answer.trim()) return null
+    return { p_body: toChosung(d.answer.trim()), p_choices: null, p_answer: d.answer.trim(), p_hint: d.hint.trim() }
+  }
+  if (kind === 'bible' && mode === 'choice') {
+    if (!d.body.trim() || d.choices.some((c) => !c.trim())) return null
+    return { p_body: d.body.trim(), p_choices: d.choices.map((c) => c.trim()), p_answer: String(d.correct), p_hint: null }
+  }
+  if (!d.body.trim() || !d.answer.trim()) return null
+  return { p_body: d.body.trim(), p_choices: null, p_answer: d.answer.trim(), p_hint: null }
+}
+
+function QuizForm({ kind, code, run }) {
+  const [mode, setMode] = useState('choice') // 성경 퀴즈: choice(객관식) | short(단답형)
+  const [draft, setDraft] = useState(emptyDraft)
   const [points, setPoints] = useState(10)
+  const set = (patch) => setDraft((d) => ({ ...d, ...patch }))
+  const args = draftArgs(kind, mode, draft)
+  const isChoice = kind === 'bible' && mode === 'choice'
 
   async function submit(open) {
-    let args
-    if (kind === 'chosung') {
-      if (!answer.trim()) return
-      args = { p_body: toChosung(answer.trim()), p_choices: null, p_answer: answer.trim(), p_hint: hint.trim() }
-    } else if (kind === 'bible') {
-      if (!body.trim() || choices.some((c) => !c.trim())) return
-      args = { p_body: body.trim(), p_choices: choices.map((c) => c.trim()), p_answer: String(correct), p_hint: null }
-    } else {
-      if (!body.trim() || !answer.trim()) return
-      args = { p_body: body.trim(), p_choices: null, p_answer: answer.trim(), p_hint: null }
-    }
+    if (!args) return
     const ok = await run('evm_quiz_add', { p_kind: kind, ...args, p_points: points, p_open: open }, open ? '출제했습니다.' : '보관했습니다.')
-    if (ok) {
-      setBody('')
-      setAnswer('')
-      setHint('')
-      setChoices(['', '', '', ''])
-    }
+    if (ok) setDraft(emptyDraft)
   }
 
   return (
-    <form className="order-form" onSubmit={(e) => e.preventDefault()}>
-      {kind === 'chosung' && (
-        <>
-          <input value={answer} onChange={(e) => setAnswer(e.target.value)} maxLength={40} aria-label="정답" placeholder="정답(예: 우리 교회 이름, 목사님 성함, 성경 인물)" />
-          <p className="guide">팀 화면에는 초성만 표시됩니다{answer.trim() && `: ${toChosung(answer.trim())}`}. 띄어쓰기는 채점에서 무시합니다.</p>
-          <input value={hint} onChange={(e) => setHint(e.target.value)} maxLength={100} aria-label="힌트" placeholder="힌트(선택). 힌트를 본 팀은 절반 점수를 받습니다" />
-        </>
-      )}
-      {kind === 'bible' && (
-        <>
-          <input value={body} onChange={(e) => setBody(e.target.value)} maxLength={300} aria-label="문제" placeholder="문제" />
-          {choices.map((c, i) => (
-            <label key={i} className="choice-row">
-              <input type="radio" name="correct" checked={correct === i} onChange={() => setCorrect(i)} aria-label={`${i + 1}번을 정답으로`} />
-              <input value={c} onChange={(e) => setChoices(choices.map((x, k) => (k === i ? e.target.value : x)))} maxLength={60} aria-label={`선택지 ${i + 1}`} placeholder={`선택지 ${i + 1}`} />
-            </label>
-          ))}
-          <p className="guide">정답인 선택지의 동그라미를 고릅니다. 팀은 문제마다 한 번만 답할 수 있습니다.</p>
-        </>
-      )}
-      {kind === 'nonsense' && (
-        <>
-          <input value={body} onChange={(e) => setBody(e.target.value)} maxLength={300} aria-label="문제" placeholder="문제(예: 왕이 넘어지면?)" />
-          <input value={answer} onChange={(e) => setAnswer(e.target.value)} maxLength={40} aria-label="정답" placeholder="정답(낱말 하나)" />
-        </>
-      )}
-      <div className="seg">
-        {[5, 10, 20].map((p) => (
-          <button type="button" key={p} className={points === p ? 'on' : ''} onClick={() => setPoints(p)}>{p}점</button>
-        ))}
-        <span className="seg-gap" />
-        <button type="button" className="ghost" onClick={() => submit(false)}>보관</button>
-        <button type="button" className="primary" onClick={() => submit(true)}>바로 출제</button>
+    <div className="composer">
+      <form className="composer-form" onSubmit={(e) => e.preventDefault()}>
+        {kind === 'bible' && (
+          <div className="seg">
+            <button type="button" className={mode === 'choice' ? 'on' : ''} onClick={() => setMode('choice')}>객관식</button>
+            <button type="button" className={mode === 'short' ? 'on' : ''} onClick={() => setMode('short')}>단답형</button>
+          </div>
+        )}
+
+        {kind !== 'chosung' && (
+          <label className="field">
+            <span>문제</span>
+            <textarea rows={2} value={draft.body} onChange={(e) => set({ body: e.target.value })} maxLength={300}
+              placeholder={kind === 'nonsense' ? '예: 왕이 넘어지면?' : '예: 홍해를 가른 지도자는 누구입니까?'} />
+          </label>
+        )}
+
+        {isChoice ? (
+          <div className="field">
+            <span>선택지 (정답인 칸의 동그라미를 고릅니다)</span>
+            {draft.choices.map((c, i) => (
+              <label key={i} className={`choice-row ${draft.correct === i ? 'correct' : ''}`}>
+                <input type="radio" name="correct" checked={draft.correct === i} onChange={() => set({ correct: i })} aria-label={`${i + 1}번을 정답으로`} />
+                <input value={c} onChange={(e) => set({ choices: draft.choices.map((x, k) => (k === i ? e.target.value : x)) })} maxLength={60} aria-label={`선택지 ${i + 1}`} placeholder={`선택지 ${i + 1}`} />
+              </label>
+            ))}
+          </div>
+        ) : (
+          <label className="field">
+            <span>{kind === 'bible' ? '정답 핵심 낱말' : '정답'}</span>
+            <input value={draft.answer} onChange={(e) => set({ answer: e.target.value })} maxLength={60}
+              placeholder={kind === 'chosung' ? '예: 우리 교회 이름, 목사님 성함, 성경 인물' : kind === 'bible' ? '예: 모세' : '예: 킹콩'} />
+            <small>
+              {kind === 'bible'
+                ? '답안에 이 낱말이 들어 있으면 정답입니다. 다르게 부를 수 있으면 쉼표로 여러 개 적습니다(예: 베드로, 시몬).'
+                : '띄어쓰기는 채점에서 무시합니다. 정답이 여러 개면 쉼표로 적습니다.'}
+            </small>
+          </label>
+        )}
+
+        {kind === 'chosung' && (
+          <label className="field">
+            <span>힌트 (선택)</span>
+            <input value={draft.hint} onChange={(e) => set({ hint: e.target.value })} maxLength={100} placeholder="힌트를 본 팀은 절반 점수를 받습니다" />
+          </label>
+        )}
+
+        <div className="composer-actions">
+          <div className="seg">
+            {[5, 10, 20].map((p) => (
+              <button type="button" key={p} className={points === p ? 'on' : ''} onClick={() => setPoints(p)}>{p}점</button>
+            ))}
+          </div>
+          <button type="button" className="ghost" disabled={!args} onClick={() => submit(false)}>보관</button>
+          <button type="button" className="primary" disabled={!args} onClick={() => submit(true)}>바로 출제</button>
+        </div>
+      </form>
+
+      <div className="composer-preview">
+        <p className="preview-label">팀 화면 미리보기</p>
+        <div className="card">
+          <p className="hint">{points}점{kind === 'chosung' && draft.hint.trim() && ` · 힌트를 보면 ${Math.ceil(points / 2)}점`}</p>
+          {kind === 'chosung' ? (
+            <p className="big">{draft.answer.trim() ? toChosung(draft.answer.trim()) : 'ㅊㅅ'}</p>
+          ) : (
+            <p className="question">{draft.body.trim() || '문제가 여기에 표시됩니다'}</p>
+          )}
+          {isChoice ? (
+            <div className="choices">
+              {draft.choices.map((c, i) => (
+                <span key={i} className={`choice ${draft.correct === i ? 'right' : ''}`}>{c.trim() || `선택지 ${i + 1}`}</span>
+              ))}
+            </div>
+          ) : (
+            <div className="login answer-form">
+              <input disabled placeholder="정답" aria-label="미리보기 입력 칸" />
+              <span className="primary fake-btn">제출</span>
+            </div>
+          )}
+        </div>
       </div>
-    </form>
+
+      <AiSuggest kind={kind} mode={mode} code={code} run={run} points={points} />
+    </div>
+  )
+}
+
+// Claude에게 문제 후보를 받아 고른 것만 보관한다.
+function AiSuggest({ kind, mode, code, run, points }) {
+  const [topic, setTopic] = useState('')
+  const [items, setItems] = useState([])
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const apiKind = kind === 'bible' ? (mode === 'choice' ? 'bible_choice' : 'bible_short') : kind
+
+  async function ask() {
+    setBusy(true)
+    setError('')
+    try {
+      setItems(await suggestQuiz(code, apiKind, topic, 5))
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function keep(item, index) {
+    const isChoice = apiKind === 'bible_choice'
+    const args =
+      kind === 'chosung'
+        ? { p_body: toChosung(item.answer.replace(/\s/g, '')), p_choices: null, p_answer: item.answer.replace(/\s/g, ''), p_hint: item.hint || '' }
+        : { p_body: item.body, p_choices: isChoice ? item.choices : null, p_answer: item.answer, p_hint: null }
+    const ok = await run('evm_quiz_add', { p_kind: kind, ...args, p_points: points, p_open: false }, '추천 문제를 보관했습니다.')
+    if (ok) setItems((list) => list.filter((_, i) => i !== index))
+  }
+
+  return (
+    <div className="ai-suggest">
+      <p className="preview-label">✨ AI 문제 추천 (Claude Sonnet 5.5)</p>
+      <div className="login">
+        <input value={topic} onChange={(e) => setTopic(e.target.value)} maxLength={300} aria-label="추천 주제"
+          placeholder="주제(예: 다윗, 예수님의 기적, 에버랜드 동물). 비워 두면 자유 주제" />
+        <button type="button" className="primary" disabled={busy} onClick={ask}>{busy ? '만드는 중입니다' : '추천 받기'}</button>
+      </div>
+      <p className="guide">추천은 후보입니다. 내용을 확인한 뒤 "보관"을 누른 문제만 목록에 들어가고, 출제는 목록에서 따로 합니다.</p>
+      {error && <p className="error">{error}</p>}
+      <ul className="order-list">
+        {items.map((item, i) => (
+          <li key={i}>
+            <p className="order-body">
+              {kind === 'chosung' ? `${toChosung(item.answer)} (${item.answer})` : item.body}
+            </p>
+            {apiKind === 'bible_choice' ? (
+              <p className="order-meta">
+                {item.choices.map((c, k) => (String(k) === String(item.answer) ? `✔ ${c}` : c)).join(' / ')}
+              </p>
+            ) : (
+              <p className="order-meta">정답: {item.answer}{item.hint && ` · 힌트: ${item.hint}`}</p>
+            )}
+            <p className="quiz-tools">
+              <button className="link" onClick={() => keep(item, i)}>보관</button>
+              <button className="link" onClick={() => setItems((list) => list.filter((_, k) => k !== i))}>버리기</button>
+            </p>
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }

@@ -101,6 +101,7 @@ function QuizCard({ code, teamId, quiz, result, refresh }) {
   const [busy, setBusy] = useState(false)
   const [reply, setReply] = useState(null) // 서버 채점 결과
   const done = Boolean(result) || quiz.status === 'closed'
+  const isChoice = quiz.kind === 'bible' && Array.isArray(quiz.choices)
 
   async function send(value) {
     setBusy(true)
@@ -108,7 +109,7 @@ function QuizCard({ code, teamId, quiz, result, refresh }) {
     try {
       const res = await rpc('evm_quiz_answer', { p_code: code, p_team: teamId, p_id: quiz.id, p_text: value, p_hint: hint })
       setReply(res)
-      if (res.ok || quiz.kind === 'bible') refresh()
+      if (res.ok || isChoice) refresh()
       else setMessage('정답이 아닙니다. 다시 생각합니다.')
     } catch (err) {
       setMessage(errorText(err))
@@ -131,7 +132,7 @@ function QuizCard({ code, teamId, quiz, result, refresh }) {
       <p className={quiz.kind === 'chosung' ? 'big' : 'question'}>{quiz.body}</p>
       {quiz.kind === 'chosung' && quiz.hint && (hint || done) && <p className="hint">힌트: {quiz.hint}</p>}
 
-      {quiz.kind === 'bible' && (
+      {isChoice && (
         <div className="choices">
           {quiz.choices.map((c, i) => {
             const cls = !done ? '' : String(i) === String(correctIndex) ? 'right' : ''
@@ -144,7 +145,7 @@ function QuizCard({ code, teamId, quiz, result, refresh }) {
         </div>
       )}
 
-      {quiz.kind !== 'bible' && !done && (
+      {!isChoice && !done && (
         <>
           {quiz.kind === 'chosung' && quiz.hint && !hint && (
             <button className="ghost" onClick={() => setHint(true)}>힌트 보기</button>
@@ -162,7 +163,7 @@ function QuizCard({ code, teamId, quiz, result, refresh }) {
         <p className="answer">{result.score > 0 ? `정답입니다. +${result.score}점` : '오답입니다. 이 문제는 한 번만 답할 수 있습니다.'}</p>
       )}
       {!result && quiz.status === 'closed' && <p className="hint">마감된 문제입니다.</p>}
-      {quiz.status === 'closed' && quiz.answer != null && quiz.kind !== 'bible' && <p className="hint">정답: {quiz.answer}</p>}
+      {quiz.status === 'closed' && quiz.answer != null && !isChoice && <p className="hint">정답: {quiz.answer}</p>}
     </div>
   )
 }

@@ -46,7 +46,7 @@ export const SCORE = { perMission: 10, perLine: 30 }
 
 export const QUIZ_KINDS = [
   { id: 'chosung', icon: '🔤', title: '초성 퀴즈', desc: '초성을 보고 답을 입력합니다. 힌트를 보면 점수가 절반입니다.' },
-  { id: 'bible', icon: '✝️', title: '성경 퀴즈', desc: '넷 중 하나를 고릅니다. 문제마다 한 번만 답할 수 있습니다.' },
+  { id: 'bible', icon: '✝️', title: '성경 퀴즈', desc: '객관식은 넷 중 하나를 고르며 한 번만 답할 수 있습니다. 단답형은 답을 입력합니다.' },
   { id: 'nonsense', icon: '🤣', title: '넌센스 퀴즈', desc: '엉뚱한 답을 입력합니다.' },
   { id: 'act', icon: '🙆', title: '몸으로 말해요', desc: '다른 팀이 몸으로 표현한 사진을 보고 답을 입력합니다.' },
 ]

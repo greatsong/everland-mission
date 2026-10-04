@@ -58,6 +58,9 @@ create table if not exists evm_locations (
   acc real,
   updated_at timestamptz not null default now()
 );
+-- 팀 번호 0은 본부 위치다.
+alter table evm_locations drop constraint if exists evm_locations_team_id_check;
+alter table evm_locations add constraint evm_locations_team_id_check check (team_id between 0 and 6);
 alter table evm_locations enable row level security;
 alter table evm_scores enable row level security;
 alter table evm_config enable row level security;
@@ -319,11 +322,11 @@ begin
           where id = p_id and (status in ('open', 'closed') or evm_login(p_code) = 'admin'));
 end $$;
 
--- 답안 제출과 채점. 성경 퀴즈(사지선다)는 한 번만, 나머지는 맞힐 때까지 낼 수 있다.
+-- 답안 제출과 채점. 객관식은 한 번만, 나머지는 맞힐 때까지 낼 수 있다.
 -- 초성 퀴즈는 힌트를 보면 절반 점수. 몸으로 말해요는 맞힌 팀마다 출제 팀도 절반 점수를 받는다.
 create or replace function evm_quiz_answer(p_code text, p_team int, p_id bigint, p_text text, p_hint boolean) returns json
 language plpgsql security definer set search_path = public as $$
-declare q evm_quizzes%rowtype; v_ok boolean; v_points int := 0;
+declare q evm_quizzes%rowtype; v_ok boolean; v_choice boolean; v_points int := 0;
 begin
   perform evm_require(p_code);
   select * into q from evm_quizzes where id = p_id and status = 'open';
@@ -336,15 +339,24 @@ begin
   if exists (select 1 from evm_scores where team_id = p_team and game_id = 'quiz:' || q.id) then
     raise exception 'EVM_QUIZ_DONE' using errcode = 'P0001';
   end if;
-  if q.kind = 'bible' then
+  -- 객관식(성경 퀴즈에 선택지가 있을 때)은 번호를 비교한다.
+  -- 그 밖에는 정답 칸에 쉼표로 적은 낱말 중 하나와 맞으면 정답이다.
+  -- 성경 단답형은 답안에 핵심 낱말이 들어 있으면 정답으로 본다(예: 정답 "모세", 답안 "모세입니다").
+  v_choice := q.kind = 'bible' and q.choices is not null;
+  if v_choice then
     v_ok := btrim(coalesce(p_text, '')) = q.answer;
   else
-    v_ok := evm_norm(p_text) = evm_norm(q.answer);
+    v_ok := exists (
+      select 1 from unnest(string_to_array(q.answer, ',')) k
+      where evm_norm(k) <> ''
+        and case when q.kind = 'bible' then evm_norm(p_text) like '%' || evm_norm(k) || '%'
+                 else evm_norm(p_text) = evm_norm(k) end
+    );
   end if;
   if v_ok then
     v_points := case when q.kind = 'chosung' and p_hint then (q.points + 1) / 2 else q.points end;
   end if;
-  if v_ok or q.kind = 'bible' then
+  if v_ok or v_choice then
     insert into evm_scores (team_id, game_id, score) values (p_team, 'quiz:' || q.id, v_points)
     on conflict (team_id, game_id) do nothing;
   end if;
@@ -353,7 +365,7 @@ begin
     on conflict (team_id, game_id) do nothing;
   end if;
   return json_build_object('ok', v_ok, 'points', v_points,
-    'answer', case when q.kind = 'bible' then q.answer end);
+    'answer', case when v_choice then q.answer end);
 end $$;
 
 drop function if exists evm_score(text, int, text, int);
@@ -361,7 +373,7 @@ drop function if exists evm_score(text, int, text, int);
 create or replace function evm_locate(p_code text, p_team int, p_lat double precision, p_lng double precision, p_acc real) returns void
 language plpgsql security definer set search_path = public as $$
 begin
-  perform evm_require(p_code);
+  perform evm_require(p_code, p_team = 0);
   if p_lat not between -90 and 90 or p_lng not between -180 and 180 then
     raise exception 'EVM_BAD_LOCATION' using errcode = 'P0001';
   end if;

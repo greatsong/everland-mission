@@ -29,6 +29,18 @@ export async function rpc(fn, args) {
   return text ? JSON.parse(text) : null
 }
 
+// 문제 추천(본부 전용). Supabase 서버 함수가 본부 코드를 확인한 뒤 Claude에 요청한다.
+export async function suggestQuiz(code, kind, topic, count) {
+  const res = await fetch(`${URL_BASE}/functions/v1/evm-suggest`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: KEY, Authorization: `Bearer ${KEY}` },
+    body: JSON.stringify({ code, kind, topic, count }),
+  })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(body.message || `추천 실패(${res.status})`)
+  return body.items || []
+}
+
 function read(key, fallback) {
   try {
     return JSON.parse(localStorage.getItem(key)) ?? fallback

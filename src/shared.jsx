@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { VERSES, TEAMS } from './data.js'
 import { rpc, fetchPhoto, BadCodeError } from './store.js'
 import { versePieces, ranking, minutesAgo } from './logic.js'
@@ -142,6 +142,7 @@ export function useLocationShare(code, teamId) {
   })
   const [here, setHere] = useState(null) // { lat, lng, acc }
   const [error, setError] = useState('')
+  const sendRef = useRef(null)
 
   const toggle = useCallback((next) => {
     try {
@@ -174,17 +175,22 @@ export function useLocationShare(code, teamId) {
         { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 },
       )
     }
+    sendRef.current = send
     send()
     const timer = setInterval(send, LOCATE_MS)
     document.addEventListener('visibilitychange', send)
     return () => {
       alive = false
+      sendRef.current = null
       clearInterval(timer)
       document.removeEventListener('visibilitychange', send)
     }
   }, [on, code, teamId])
 
-  return { on, toggle, here, error }
+  // 미션을 완료할 때마다 불러 위치를 바로 갱신한다(공유가 켜져 있을 때만).
+  const ping = useCallback(() => sendRef.current?.(), [])
+
+  return { on, toggle, here, error, ping }
 }
 
 // 두 좌표 사이 거리(미터)
@@ -198,7 +204,7 @@ export function distanceM(a, b) {
 // 팀 위치 목록. 팀 이름을 누르면 에버랜드 공식 지도가 그 위치에서 열린다.
 export function LocationList({ data, myTeamId, here }) {
   const teams = teamsOf(data)
-  const rows = teams.map((t) => ({ team: t, loc: data.locations.find((l) => l.team_id === t.id) }))
+  const rows = [{ id: 0, name: '본부', color: '#1f2a24' }, ...teams].map((t) => ({ team: t, loc: data.locations.find((l) => l.team_id === t.id) }))
   if (!rows.some((r) => r.loc)) return <p className="guide">아직 위치를 보낸 팀이 없습니다.</p>
   return (
     <ul className="loc-list">
