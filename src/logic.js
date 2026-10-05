@@ -113,3 +113,11 @@ export function ranking(data, teams = TEAMS) {
 export function minutesAgo(iso, nowIso) {
   return Math.max(0, Math.round((new Date(nowIso) - new Date(iso)) / 60000))
 }
+
+// "12분 전", "5시간 54분 전"처럼 읽기 쉬운 경과 시간
+export function agoText(iso, nowIso) {
+  const m = minutesAgo(iso, nowIso)
+  if (m < 1) return '방금'
+  if (m < 60) return `${m}분 전`
+  return `${Math.floor(m / 60)}시간 ${m % 60}분 전`
+}

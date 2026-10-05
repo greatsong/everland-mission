@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { TEAMS, MISSIONS, SCORE } from './data.js'
 import { rpc, BadCodeError, loadSession, saveSession, loadState, saveState, compressPhoto, report } from './store.js'
-import { boardFor, teamScore, doneByTeam, missionInfo, minutesAgo, rushRank, completedLines } from './logic.js'
+import { boardFor, teamScore, doneByTeam, missionInfo, minutesAgo, agoText, rushRank, completedLines } from './logic.js'
 import { useRemote, usePhoto, Photo, VerseView, Ranking, teamsOf, useLocationShare, LocationList, everlandMapUrl, TeamAvatar, teachersOf } from './shared.jsx'
 import { lazy, Suspense } from 'react'
 import Games from './Games.jsx'
@@ -284,7 +284,7 @@ function TeamHome({ session, onLeave, onLogout }) {
 
       <div className="status">
         <button className="checkin" onClick={checkin}>
-          ✅ 인원 확인{myCheckin && data ? ` · ${minutesAgo(myCheckin.at, data.now)}분 전` : ''}
+          ✅ 인원 확인{myCheckin && data ? ` · ${agoText(myCheckin.at, data.now)}` : ''}
         </button>
         <button className="checkin" onClick={() => setInbox(true)}>
           🔔 알림{todo > 0 && <b className="badge">{todo}</b>}

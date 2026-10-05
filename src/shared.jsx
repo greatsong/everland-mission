@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { VERSES, TEAMS } from './data.js'
 import { rpc, fetchPhoto, BadCodeError, report } from './store.js'
-import { versePieces, ranking, minutesAgo } from './logic.js'
+import { versePieces, ranking, minutesAgo, agoText } from './logic.js'
 
 const POLL_MS = 15000
 const TEAM_COUNT_KEY = 'evm:v2:teamCount'
@@ -150,7 +150,7 @@ export function Ranking({ code, data, myTeamId, showCheckin }) {
             <small>지령 {r.order}점 · 퀴즈 {r.quiz}점</small>
             {showCheckin && (
               <small>
-                {checkins[r.team.id] ? `인원 확인 ${minutesAgo(checkins[r.team.id], data.now)}분 전` : '인원 확인 기록 없음'}
+                {checkins[r.team.id] ? `인원 확인 ${agoText(checkins[r.team.id], data.now)}` : '인원 확인 기록 없음'}
               </small>
             )}
           </span>
@@ -234,6 +234,8 @@ export function useLocationShare(code, teamId) {
   return { on, toggle, here, error, ping }
 }
 
+const clockOf = (iso) => new Date(iso).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })
+
 // 두 좌표 사이 거리(미터)
 export function distanceM(a, b) {
   const rad = Math.PI / 180
@@ -255,7 +257,7 @@ export function LocationList({ data, myTeamId, here }) {
           {loc ? (
             <>
               <span className="rank-detail">
-                {minutesAgo(loc.at, data.now)}분 전{loc.acc ? ` · 오차 약 ${Math.round(loc.acc)}m` : ''}
+                <b>{clockOf(loc.at)}</b> 기록 · {agoText(loc.at, data.now)}{loc.acc ? ` · 오차 약 ${Math.round(loc.acc)}m` : ''}
                 {here && team.id !== myTeamId && <small>우리 팀에서 약 {distanceM(here, loc)}m</small>}
               </span>
               <a href={everlandMapUrl(loc.lat, loc.lng)} target="_blank" rel="noreferrer">지도에서 보기</a>

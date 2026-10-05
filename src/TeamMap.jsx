@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { teamsOf } from './shared.jsx'
-import { minutesAgo } from './logic.js'
+import { minutesAgo, agoText } from './logic.js'
 
 const clock = (iso) => new Date(iso).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })
 
@@ -25,6 +25,7 @@ export default function TeamMap({ data, here, myTeamId, tracks, until }) {
     }).addTo(map)
     layerRef.current = L.layerGroup().addTo(map)
     mapRef.current = map
+    fittedRef.current = false // 지도를 새로 만들면 처음 맞추기도 다시 한다
     return () => map.remove()
   }, [])
 
@@ -62,12 +63,13 @@ export default function TeamMap({ data, here, myTeamId, tracks, until }) {
       const minutes = minutesAgo(loc.at, data.now)
       const icon = L.divIcon({
         className: '',
-        html: `<span class="map-pin${!label && minutes > 10 ? ' stale' : ''}" style="background:${team.color}">${team.name}</span>`,
-        iconSize: [44, 26],
-        iconAnchor: [22, 13],
+        // 팀 이름 아래에 그 위치가 기록된 시각을 적는다.
+        html: `<span class="map-pin${!label && minutes > 10 ? ' stale' : ''}" style="background:${team.color}">${team.name}<small>${clock(loc.at)}</small></span>`,
+        iconSize: [56, 40],
+        iconAnchor: [28, 20],
       })
       L.marker([loc.lat, loc.lng], { icon })
-        .bindPopup(label ? `${team.name} · ${label}` : `${team.name} · ${minutes}분 전${loc.acc ? ` · 오차 약 ${Math.round(loc.acc)}m` : ''}`)
+        .bindPopup(label ? `${team.name} · ${label} 기록` : `${team.name} · ${clock(loc.at)} 기록(${agoText(loc.at, data.now)})${loc.acc ? ` · 오차 약 ${Math.round(loc.acc)}m` : ''}`)
         .addTo(layer)
       points.push([loc.lat, loc.lng])
     }
