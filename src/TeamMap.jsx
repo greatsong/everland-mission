@@ -16,6 +16,9 @@ export default function TeamMap({ data, here, myTeamId, tracks, until }) {
   const mapRef = useRef(null)
   const layerRef = useRef(null)
   const fittedRef = useRef(false)
+  const seenRef = useRef(null) // 직전에 받은 완료 기록(팀별 미션·지령·퀴즈). 새로 생긴 것을 찾는 데 사용한다
+  const burstRef = useRef({}) // { [teamId]: 반짝임을 보여 줄 마감 시각(ms) }
+  const [recent, setRecent] = useState('')
 
   useEffect(() => {
     const map = L.map(boxRef.current, { zoomControl: true, attributionControl: true }).setView(EVERLAND, 16)
@@ -35,6 +38,21 @@ export default function TeamMap({ data, here, myTeamId, tracks, until }) {
     if (!map || !layer) return
     layer.clearLayers()
     const points = []
+
+    // 미션·지령·퀴즈를 방금 완료한 팀을 찾는다. 화면을 처음 열 때는 건너뛴다.
+    const keys = new Set([
+      ...data.submissions.map((s) => `${s.team_id}|${s.mission_id}|${s.first_at || s.at}`),
+      ...(data.scores || []).filter((s) => s.score > 0 && !s.game_id.startsWith('qa:')).map((s) => `${s.team_id}|${s.game_id}`),
+    ])
+    if (seenRef.current && !until) {
+      const fresh = [...keys].filter((k) => !seenRef.current.has(k)).map((k) => Number(k.split('|')[0]))
+      if (fresh.length) {
+        const names = [...new Set(fresh)].map((id) => teamsOf(data).find((t) => t.id === id)?.name).filter(Boolean)
+        for (const id of fresh) burstRef.current[id] = Date.now() + 4000
+        if (names.length) setRecent(`⭐ 방금 ${names.join(', ')}이 미션을 완료했습니다`)
+      }
+    }
+    seenRef.current = keys
     // 본부(팀 번호 0)를 먼저, 이어서 참가 팀을 표시한다.
     const HQ = { id: 0, name: '본부', color: '#1f2a24' }
     for (const team of [HQ, ...teamsOf(data)]) {
@@ -64,7 +82,13 @@ export default function TeamMap({ data, here, myTeamId, tracks, until }) {
       const icon = L.divIcon({
         className: '',
         // 팀 이름 아래에 그 위치가 기록된 시각을 적는다.
-        html: `<span class="map-pin${!label && minutes > 10 ? ' stale' : ''}" style="background:${team.color}">${team.name}<small>${clock(loc.at)}</small></span>`,
+        html: (() => {
+          // live: 2분 안에 갱신된 위치(파동), burst: 방금 미션을 완료한 팀(반짝임)
+          const live = !label && minutes <= 2
+          const burst = !label && burstRef.current[team.id] > Date.now()
+          const cls = `map-pin${!label && minutes > 10 ? ' stale' : ''}${live ? ' live' : ''}${burst ? ' burst' : ''}`
+          return `<span class="${cls}" style="background:${team.color};--pin:${team.color}">${team.name}<small>${clock(loc.at)}</small>${burst ? '<i class="map-star">⭐</i>' : ''}</span>`
+        })(),
         iconSize: [56, 40],
         iconAnchor: [28, 20],
       })
@@ -81,6 +105,12 @@ export default function TeamMap({ data, here, myTeamId, tracks, until }) {
   }, [data, here, myTeamId, tracks, until])
 
   const [note, setNote] = useState('')
+
+  useEffect(() => {
+    if (!recent) return
+    const timer = setTimeout(() => setRecent(''), 12000)
+    return () => clearTimeout(timer)
+  }, [recent])
 
   // 표시된 팀이 모두 보이게 화면을 맞춘다. 경로 선은 getLatLng가 없으므로 팀 표시(마커)만 모은다.
   function fitAll() {
@@ -105,6 +135,7 @@ export default function TeamMap({ data, here, myTeamId, tracks, until }) {
       <div ref={boxRef} className="team-map-box" />
       <button className="link" onClick={fitAll}>모든 팀이 보이게 맞추기</button>
       {note && <span className="net"> {note}</span>}
+      {recent && <p className="map-recent" role="status">{recent}</p>}
     </div>
   )
 }
