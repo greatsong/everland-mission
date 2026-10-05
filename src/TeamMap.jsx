@@ -9,6 +9,9 @@ const clock = (iso) => new Date(iso).toLocaleTimeString('ko-KR', { hour: '2-digi
 // 에버랜드 중심 부근(판다월드 인근). 위치를 보낸 팀이 없을 때의 처음 화면이다.
 const EVERLAND = [37.2925, 127.2035]
 
+// 이름표가 겹친다고 보는 화면 거리(픽셀). 이보다 가까운 팀은 이름표 하나로 합친다.
+const NEAR_PX = 40
+
 // 여러 팀의 마지막 위치를 한 화면에 표시한다. 지도 자료는 오픈스트리트맵이다.
 // tracks: 이동 경로 점 목록(시간 순서), until: 이 시각(ms)까지의 경로와 위치만 표시. 둘 다 없으면 마지막 위치만 표시한다.
 export default function TeamMap({ data, here, myTeamId, tracks, until }) {
@@ -19,6 +22,7 @@ export default function TeamMap({ data, here, myTeamId, tracks, until }) {
   const seenRef = useRef(null) // 직전에 받은 완료 기록(팀별 미션·지령·퀴즈). 새로 생긴 것을 찾는 데 사용한다
   const burstRef = useRef({}) // { [teamId]: 반짝임을 보여 줄 마감 시각(ms) }
   const [recent, setRecent] = useState('')
+  const [zoomTick, setZoomTick] = useState(0) // 확대·축소하면 겹침이 달라지므로 다시 그린다
 
   useEffect(() => {
     const map = L.map(boxRef.current, { zoomControl: true, attributionControl: true }).setView(EVERLAND, 16)
@@ -29,7 +33,12 @@ export default function TeamMap({ data, here, myTeamId, tracks, until }) {
     layerRef.current = L.layerGroup().addTo(map)
     mapRef.current = map
     fittedRef.current = false // 지도를 새로 만들면 처음 맞추기도 다시 한다
-    return () => map.remove()
+    const onZoom = () => setZoomTick((n) => n + 1)
+    map.on('zoomend', onZoom)
+    return () => {
+      map.off('zoomend', onZoom)
+      map.remove()
+    }
   }, [])
 
   useEffect(() => {
@@ -38,6 +47,7 @@ export default function TeamMap({ data, here, myTeamId, tracks, until }) {
     if (!map || !layer) return
     layer.clearLayers()
     const points = []
+    const pins = []
 
     // 미션·지령·퀴즈를 방금 완료한 팀을 찾는다. 화면을 처음 열 때는 건너뛴다.
     const keys = new Set([
@@ -78,31 +88,67 @@ export default function TeamMap({ data, here, myTeamId, tracks, until }) {
         }
       }
       if (!loc) continue
-      const minutes = minutesAgo(loc.at, data.now)
-      const icon = L.divIcon({
-        className: '',
-        // 팀 이름 아래에 그 위치가 기록된 시각을 적는다.
-        html: (() => {
-          // live: 2분 안에 갱신된 위치(파동), burst: 방금 미션을 완료한 팀(반짝임)
-          const live = !label && minutes <= 2
-          const burst = !label && burstRef.current[team.id] > Date.now()
-          const cls = `map-pin${!label && minutes > 10 ? ' stale' : ''}${live ? ' live' : ''}${burst ? ' burst' : ''}`
-          return `<span class="${cls}" style="background:${team.color};--pin:${team.color}">${team.name}<small>${clock(loc.at)}</small>${burst ? '<i class="map-star">⭐</i>' : ''}</span>`
-        })(),
-        iconSize: [56, 40],
-        iconAnchor: [28, 20],
-      })
-      L.marker([loc.lat, loc.lng], { icon })
-        .bindPopup(label ? `${team.name} · ${label} 기록` : `${team.name} · ${clock(loc.at)} 기록(${agoText(loc.at, data.now)})${loc.acc ? ` · 오차 약 ${Math.round(loc.acc)}m` : ''}`)
-        .addTo(layer)
+      pins.push({ team, loc, label, px: map.latLngToContainerPoint([loc.lat, loc.lng]) })
       points.push([loc.lat, loc.lng])
+    }
+
+    // 이름표가 겹칠 만큼 가까운 팀끼리 묶는다(화면 거리 기준). 확대하면 다시 나뉜다.
+    const groups = []
+    for (const pin of pins) {
+      const group = groups.find((g) => g.some((o) => o.px.distanceTo(pin.px) < NEAR_PX))
+      if (group) group.push(pin)
+      else groups.push([pin])
+    }
+
+    for (const group of groups) {
+      const state = (pin) => {
+        const minutes = minutesAgo(pin.loc.at, data.now)
+        return {
+          minutes,
+          // live: 2분 안에 갱신된 위치(파동), burst: 방금 미션을 완료한 팀(반짝임)
+          live: !pin.label && minutes <= 2,
+          stale: !pin.label && minutes > 10,
+          burst: !pin.label && burstRef.current[pin.team.id] > Date.now(),
+        }
+      }
+      const line = (pin) =>
+        pin.label
+          ? `${pin.team.name} · ${pin.label} 기록`
+          : `${pin.team.name} · ${clock(pin.loc.at)} 기록(${agoText(pin.loc.at, data.now)})${pin.loc.acc ? ` · 오차 약 ${Math.round(pin.loc.acc)}m` : ''}`
+
+      if (group.length === 1) {
+        const pin = group[0]
+        const s = state(pin)
+        const cls = `map-pin${s.stale ? ' stale' : ''}${s.live ? ' live' : ''}${s.burst ? ' burst' : ''}`
+        // 팀 이름 아래에 그 위치가 기록된 시각을 적는다.
+        const html = `<span class="${cls}" style="background:${pin.team.color};--pin:${pin.team.color}">${pin.team.name}<small>${clock(pin.loc.at)}</small>${s.burst ? '<i class="map-star">⭐</i>' : ''}</span>`
+        L.marker([pin.loc.lat, pin.loc.lng], { icon: L.divIcon({ className: '', html, iconSize: [56, 40], iconAnchor: [28, 20] }) })
+          .bindPopup(line(pin))
+          .addTo(layer)
+        continue
+      }
+
+      // 여러 팀이 모여 있으면 이름표 하나로 합친다. 예: "본부·1,2,6팀"
+      const states = group.map(state)
+      const numbers = group.filter((p) => p.team.id !== 0).map((p) => p.team.id).join(',')
+      const name = [group.some((p) => p.team.id === 0) ? '본부' : '', numbers ? `${numbers}팀` : ''].filter(Boolean).join('·')
+      const newest = group.reduce((a, p) => (new Date(p.loc.at) > new Date(a.loc.at) ? p : a))
+      const dots = group.map((p) => `<i style="background:${p.team.color}"></i>`).join('')
+      const cls = `map-pin group${states.every((s) => s.stale) ? ' stale' : ''}${states.some((s) => s.live) ? ' live' : ''}${states.some((s) => s.burst) ? ' burst' : ''}`
+      const html = `<span class="${cls}" style="--pin:#343a40"><b class="group-dots">${dots}</b>${name}<small>최근 ${clock(newest.loc.at)}</small>${states.some((s) => s.burst) ? '<i class="map-star">⭐</i>' : ''}</span>`
+      const lat = group.reduce((sum, p) => sum + p.loc.lat, 0) / group.length
+      const lng = group.reduce((sum, p) => sum + p.loc.lng, 0) / group.length
+      const width = 40 + name.length * 13
+      L.marker([lat, lng], { icon: L.divIcon({ className: '', html, iconSize: [width, 52], iconAnchor: [width / 2, 26] }) })
+        .bindPopup(`<b>함께 있는 팀</b><br>${group.map(line).join('<br>')}<br><small>지도를 확대하면 팀별로 나뉩니다.</small>`)
+        .addTo(layer)
     }
     // 처음 위치가 들어왔을 때 한 번만 모든 팀이 보이게 맞춘다. 그 뒤에는 사용자가 움직인 화면을 유지한다.
     if (points.length && !fittedRef.current) {
       map.fitBounds(points, { padding: [40, 40], maxZoom: 17 })
       fittedRef.current = true
     }
-  }, [data, here, myTeamId, tracks, until])
+  }, [data, here, myTeamId, tracks, until, zoomTick])
 
   const [note, setNote] = useState('')
 

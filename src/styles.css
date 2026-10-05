@@ -375,3 +375,8 @@ h1, h2, p, figure { margin: 0; }
 @keyframes star-rise { 0% { transform: translate(-50%, 0) scale(0.6); opacity: 0; } 20% { opacity: 1; } 100% { transform: translate(-50%, -38px) scale(1.5); opacity: 0; } }
 .map-recent { margin: 6px 0 0; padding: 7px 12px; border-radius: 10px; background: #fff3bf; border: 1px solid #ffd43b; font-size: 14px; font-weight: 700; }
 @media (prefers-reduced-motion: reduce) { .map-pin.live::before, .map-pin.live::after, .map-pin.burst, .map-star { animation: none; } .map-star { opacity: 1; } }
+
+/* 여러 팀이 모였을 때 합친 이름표 */
+.map-pin.group { background: #343a40; padding: 4px 10px 5px; white-space: nowrap; }
+.group-dots { display: flex; justify-content: center; gap: 3px; margin-bottom: 2px; }
+.group-dots i { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid #fff; }
