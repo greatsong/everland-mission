@@ -328,3 +328,13 @@ h1, h2, p, figure { margin: 0; }
 .quiz-pos { font-size: 14px; font-weight: 400; color: var(--muted); margin-left: 6px; }
 .quiz-nav { margin-top: 10px; }
 .quiz-nav button:disabled { opacity: 0.4; }
+
+/* 행사 제목 */
+.event-title { margin-bottom: 4px; }
+.event-deco { font-size: 40px; letter-spacing: 6px; }
+.event-org { margin-top: 10px; font-size: 15px; font-weight: 700; color: #8a4b12; word-break: keep-all; }
+.event-title h1 { font-size: 28px; margin-top: 4px; word-break: keep-all; }
+.select { background: linear-gradient(180deg, #fff4e6 0, var(--bg) 260px); min-height: 100dvh; max-width: none; }
+.select > * { max-width: 440px; margin-left: auto; margin-right: auto; }
+.hq-top h1 small { font-size: 13px; font-weight: 400; color: var(--muted); margin-left: 6px; }
+.ghost.map-link { padding: 12px; border-radius: 14px; color: var(--ink); }

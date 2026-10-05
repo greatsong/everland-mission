@@ -89,7 +89,7 @@ export default function Hq({ session, onLogout }) {
   return (
     <div className="hq">
       <header className="hq-top">
-        <h1>본부</h1>
+        <h1>🎪 본부 <small>하늘씨앗 초등부 2026 가을 야유회</small></h1>
         <span className={online ? 'net' : 'net off'}>{online ? '연결됨' : '연결 끊김'}</span>
         <a href="#show">슬라이드쇼</a>
         <a href="#">팀 화면</a>

@@ -51,6 +51,19 @@ export default function App() {
   )
 }
 
+// 입장 화면과 팀 선택 화면의 행사 제목
+function EventTitle() {
+  return (
+    <header className="event-title">
+      <p className="event-deco" aria-hidden="true">🍂 🎡 🍁</p>
+      <p className="event-org">🌱 하늘씨앗 초등부 2026 가을 야유회</p>
+      <h1>에버랜드 팀별 미션 🎯</h1>
+    </header>
+  )
+}
+
+const EVERLAND_MAP = 'https://www.everland.com/everland/map'
+
 function Login({ onLogin }) {
   const [code, setCode] = useState('')
   const [error, setError] = useState('')
@@ -75,8 +88,7 @@ function Login({ onLogin }) {
 
   return (
     <main className="select">
-      <p className="select-emoji">🎡</p>
-      <h1>에버랜드 미션</h1>
+      <EventTitle />
       <p className="sub">선생님께 받은 입장 코드를 입력합니다.</p>
       <form className="login" onSubmit={submit}>
         <input
@@ -99,8 +111,7 @@ function TeamSelect({ session, onSelect, onLogout }) {
   const { data } = useRemote(session.code, onLogout)
   return (
     <main className="select">
-      <p className="select-emoji">🎡</p>
-      <h1>에버랜드 미션</h1>
+      <EventTitle />
       <p className="sub">우리 팀을 선택합니다. 선생님 휴대폰 한 대로 진행합니다.</p>
       <div className="team-grid">
         {teamsOf(data).map((t) => (
@@ -111,6 +122,7 @@ function TeamSelect({ session, onSelect, onLogout }) {
       </div>
       <p className="select-links">
         {session.role === 'admin' && <a href="#hq">본부 화면</a>}
+        <a href={EVERLAND_MAP} target="_blank" rel="noreferrer">🗺️ 에버랜드 지도</a>
         <a href="#show">슬라이드쇼</a>
         <button className="link" onClick={onLogout}>코드 다시 입력</button>
       </p>
@@ -655,6 +667,7 @@ function Everyone({ code, data, teamId, refresh, locate }) {
           </a>
         )}
         {locate.on && !locate.here && !locate.error && <p className="guide">위치를 찾는 중입니다.</p>}
+        <a className="ghost map-link" href={EVERLAND_MAP} target="_blank" rel="noreferrer">🗺️ 에버랜드 공식 지도 열기</a>
       </div>
       {data.share_locations && (
         <>
