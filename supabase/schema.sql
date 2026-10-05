@@ -445,6 +445,43 @@ begin
   return (select photo from evm_teams where team_id = p_team);
 end $$;
 
+-- 점검 기록: 기기가 보내는 접속·오류 보고. 시험과 행사 중 문제를 추적하는 데 사용한다.
+create table if not exists evm_events (
+  id bigint generated always as identity primary key,
+  team_id int,
+  kind text not null,
+  message text,
+  ua text,
+  created_at timestamptz not null default now()
+);
+alter table evm_events enable row level security;
+
+-- 입장 전 오류도 받아야 하므로 코드를 확인하지 않는다. 길이를 자르고 3,000건까지만 보관한다.
+create or replace function evm_report(p_team int, p_kind text, p_message text, p_ua text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  insert into evm_events (team_id, kind, message, ua)
+  values (p_team, left(coalesce(p_kind, '?'), 20), left(p_message, 300), left(p_ua, 250));
+  delete from evm_events where id <= (select max(id) from evm_events) - 3000;
+end $$;
+
+create or replace function evm_events_list(p_code text) returns json
+language plpgsql stable security definer set search_path = public as $$
+begin
+  perform evm_require(p_code, true);
+  return coalesce((
+    select json_agg(e order by e.id desc) from (
+      select id, team_id, kind, message, ua, created_at as at from evm_events order by id desc limit 300
+    ) e), '[]'::json);
+end $$;
+
+create or replace function evm_events_clear(p_code text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform evm_require(p_code, true);
+  delete from evm_events where true;
+end $$;
+
 -- 참가 팀 수(2~6). 말씀 조각 배분이 달라지므로 행사 시작 전에 정한다.
 create or replace function evm_set_teams(p_code text, p_count int) returns void
 language plpgsql security definer set search_path = public as $$
@@ -481,6 +518,7 @@ grant execute on function
   evm_notice(text, text), evm_wipe(text), evm_set_teams(text, int),
   evm_locate(text, int, double precision, double precision, real), evm_share_locations(text, boolean), evm_tracks(text),
   evm_team_set(text, int, text, text), evm_team_photo(text, int),
+  evm_report(int, text, text, text), evm_events_list(text), evm_events_clear(text),
   evm_quiz_add(text, text, text, json, text, text, int, boolean), evm_quiz_seed(text, json), evm_quiz_set(text, bigint, text),
   evm_quiz_open_all(text, text), evm_quiz_delete(text, bigint), evm_act_submit(text, int, text, text),
   evm_quiz_photo(text, bigint), evm_quiz_answer(text, int, bigint, text, boolean),

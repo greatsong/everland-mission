@@ -19,6 +19,10 @@ function errorText(err) {
 
 const resultOf = (data, teamId, quizId) => data.scores.find((s) => s.team_id === teamId && s.game_id === `quiz:${quizId}`)
 
+// 팀에게 보이는 문제 목록(승인 대기와 우리 팀이 낸 문제는 제외)
+const listOf = (data, teamId, kind) =>
+  data.quizzes.filter((q) => q.kind === kind && q.status !== 'pending' && q.author_team !== teamId)
+
 export default function Games({ code, teamId, data, refresh }) {
   const [selected, setSelected] = useState(null) // 문제 id
   const [authoring, setAuthoring] = useState(false)
@@ -28,11 +32,28 @@ export default function Games({ code, teamId, data, refresh }) {
   const quiz = data.quizzes.find((q) => q.id === selected)
   if (quiz) {
     const kind = QUIZ_KINDS.find((k) => k.id === quiz.kind)
+    // 같은 종류 안에서 앞뒤 문제로 옮겨 간다. 다음 문제는 아직 풀지 않은 문제를 먼저 찾는다.
+    const list = listOf(data, teamId, quiz.kind)
+    const index = list.findIndex((q) => q.id === quiz.id)
+    const open = (q) => q.status === 'open' && !resultOf(data, teamId, q.id)
+    const nextOpen = list.slice(index + 1).find(open) || list.slice(0, index).find(open)
     return (
       <section className="game">
         <button className="back" onClick={() => setSelected(null)}>← 문제 목록</button>
-        <h2>{kind.icon} {kind.title}</h2>
-        <QuizCard key={quiz.id} code={code} teamId={teamId} quiz={quiz} result={resultOf(data, teamId, quiz.id)} refresh={refresh} />
+        <h2>{kind.icon} {kind.title} <small className="quiz-pos">{index + 1} / {list.length}</small></h2>
+        <QuizCard
+          key={quiz.id}
+          code={code}
+          teamId={teamId}
+          quiz={quiz}
+          result={resultOf(data, teamId, quiz.id)}
+          refresh={refresh}
+          onNext={nextOpen ? () => setSelected(nextOpen.id) : null}
+        />
+        <div className="row quiz-nav">
+          <button className="ghost" disabled={index <= 0} onClick={() => setSelected(list[index - 1].id)}>← 이전 문제</button>
+          <button className="ghost" disabled={index >= list.length - 1} onClick={() => setSelected(list[index + 1].id)}>다음 문제 →</button>
+        </div>
       </section>
     )
   }
@@ -55,7 +76,7 @@ export default function Games({ code, teamId, data, refresh }) {
         본부가 낸 문제를 모든 팀이 풉니다. 맞히면 문제에 적힌 점수가 순위에 더해집니다. 줄을 서서 기다리는 동안 작은 목소리로 의논합니다.
       </p>
       {QUIZ_KINDS.map((kind) => {
-        const list = data.quizzes.filter((q) => q.kind === kind.id && q.status !== 'pending' && q.author_team !== teamId)
+        const list = listOf(data, teamId, kind.id)
         return (
           <section key={kind.id}>
             <h2 className="section">{kind.icon} {kind.title}</h2>
@@ -94,7 +115,7 @@ function QuizPhoto({ code, quizId }) {
   return <img className="sheet-photo" src={src} alt="몸으로 표현한 사진" />
 }
 
-function QuizCard({ code, teamId, quiz, result, refresh }) {
+function QuizCard({ code, teamId, quiz, result, refresh, onNext }) {
   const [text, setText] = useState('')
   const [hint, setHint] = useState(false)
   const [message, setMessage] = useState('')
@@ -162,6 +183,8 @@ function QuizCard({ code, teamId, quiz, result, refresh }) {
       {result && (
         <p className="answer">{result.score > 0 ? `정답입니다. +${result.score}점` : '오답입니다. 이 문제는 한 번만 답할 수 있습니다.'}</p>
       )}
+      {result && onNext && <button className="primary" onClick={onNext}>다음 문제 풀기</button>}
+      {result && !onNext && <p className="hint">이 종류의 문제를 모두 풀었습니다.</p>}
       {!result && quiz.status === 'closed' && <p className="hint">마감된 문제입니다.</p>}
       {quiz.status === 'closed' && quiz.answer != null && !isChoice && <p className="hint">정답: {quiz.answer}</p>}
     </div>

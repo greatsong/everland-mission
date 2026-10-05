@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { TEAMS, MISSIONS } from './data.js'
-import { rpc, BadCodeError, loadSession, saveSession, loadState, saveState, compressPhoto } from './store.js'
+import { rpc, BadCodeError, loadSession, saveSession, loadState, saveState, compressPhoto, report } from './store.js'
 import { boardFor, teamScore, doneByTeam, missionInfo, minutesAgo, rushRank, rushPoints } from './logic.js'
 import { useRemote, usePhoto, Photo, VerseView, Ranking, teamsOf, useLocationShare, LocationList, everlandMapUrl, TeamAvatar, teachersOf } from './shared.jsx'
 import { lazy, Suspense } from 'react'
@@ -128,6 +128,11 @@ function TeamHome({ session, onLeave, onLogout }) {
   const [inbox, setInbox] = useState(false)
   const { data, online, refresh } = useRemote(code, onLogout)
   const locate = useLocationShare(code, teamId)
+
+  // 접속 기록(어느 팀이 어떤 기기와 브라우저로 들어왔는지)
+  useEffect(() => {
+    report('enter', `${team.name} 입장 · 화면 ${window.innerWidth}x${window.innerHeight}`)
+  }, [team.name])
 
   const stateRef = useRef(state)
   stateRef.current = state

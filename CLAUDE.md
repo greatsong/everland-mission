@@ -41,6 +41,12 @@ npx -y supabase@latest functions deploy evm-suggest --project-ref fipdcjhtfslinf
 
 배포(GitHub Pages): `main`에 소스를 푸시하고, `npx vite build` 결과(`dist/`)를 `.nojekyll`과 함께 `gh-pages` 가지에 강제 푸시한다. 배포 뒤에는 주소의 번들 파일 이름이 바뀌었는지 확인한다.
 
+시험·행사 중 점검: 기기가 접속과 오류를 `evm_events`에 보낸다(`store.js`의 `report`). 본부 화면 "점검" 탭에서 보거나 아래 스크립트로 조회한다(읽기 전용, 인자는 최근 몇 분).
+
+```bash
+scripts/monitor.sh 120
+```
+
 ## 지킬 것
 
 - 운영 DB에서 시험한다. 시험 자료는 `[시험]` 표시를 붙여 넣고 끝나면 그것만 지운다. 사용자가 넣은 퀴즈·사진·팀 소개는 지우지 않는다. `evm_wipe`는 사용자가 직접 누른다

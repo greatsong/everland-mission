@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { VERSES, TEAMS } from './data.js'
-import { rpc, fetchPhoto, BadCodeError } from './store.js'
+import { rpc, fetchPhoto, BadCodeError, report } from './store.js'
 import { versePieces, ranking, minutesAgo } from './logic.js'
 
 const POLL_MS = 15000
@@ -193,9 +193,11 @@ export function useLocationShare(code, teamId) {
   useEffect(() => {
     if (!on) return
     if (!navigator.geolocation) {
+      report('geo', '위치 기능 없음')
       setError('이 브라우저에서는 위치를 사용할 수 없습니다.')
       return
     }
+    report('geo', '위치 공유 켬')
     let alive = true
     const send = () => {
       if (document.visibilityState !== 'visible') return
@@ -207,7 +209,10 @@ export function useLocationShare(code, teamId) {
           setError('')
           rpc('evm_locate', { p_code: code, p_team: teamId, p_lat: next.lat, p_lng: next.lng, p_acc: next.acc }).catch(() => {})
         },
-        (err) => alive && setError(err.code === 1 ? '위치 권한이 꺼져 있습니다. 브라우저 설정에서 위치를 허용합니다.' : '위치를 찾지 못했습니다.'),
+        (err) => {
+          report('geo', `위치 실패 code=${err.code} ${err.message}`)
+          if (alive) setError(err.code === 1 ? '위치 권한이 꺼져 있습니다. 브라우저 설정에서 위치를 허용합니다.' : '위치를 찾지 못했습니다.')
+        },
         { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 },
       )
     }

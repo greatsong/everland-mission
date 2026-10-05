@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { teamsOf } from './shared.jsx'
@@ -78,16 +78,31 @@ export default function TeamMap({ data, here, myTeamId, tracks, until }) {
     }
   }, [data, here, myTeamId, tracks, until])
 
+  const [note, setNote] = useState('')
+
+  // 표시된 팀이 모두 보이게 화면을 맞춘다. 경로 선은 getLatLng가 없으므로 팀 표시(마커)만 모은다.
   function fitAll() {
     const points = []
-    layerRef.current?.eachLayer((m) => points.push(m.getLatLng()))
-    if (points.length) mapRef.current.fitBounds(L.latLngBounds(points), { padding: [40, 40], maxZoom: 17 })
+    layerRef.current?.eachLayer((m) => {
+      if (m instanceof L.Marker) points.push(m.getLatLng())
+    })
+    if (!points.length) {
+      setNote('아직 위치를 보낸 팀이 없습니다. 에버랜드 전체를 표시합니다.')
+      mapRef.current.setView(EVERLAND, 16)
+      return
+    }
+    setNote(points.length === 1 ? '위치를 보낸 팀이 하나입니다. 그 팀을 가운데에 표시합니다.' : '')
+    // 화면 크기가 바뀐 뒤에도 정확히 맞도록 지도 크기를 다시 잰다.
+    mapRef.current.invalidateSize()
+    if (points.length === 1) mapRef.current.setView(points[0], 17)
+    else mapRef.current.fitBounds(L.latLngBounds(points), { padding: [40, 40], maxZoom: 18 })
   }
 
   return (
     <div className="team-map">
       <div ref={boxRef} className="team-map-box" />
       <button className="link" onClick={fitAll}>모든 팀이 보이게 맞추기</button>
+      {note && <span className="net"> {note}</span>}
     </div>
   )
 }

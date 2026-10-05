@@ -82,6 +82,7 @@ export default function Hq({ session, onLogout }) {
     { id: 'orders', label: '지령·알림', icon: '📢', badge: openOrders },
     { id: 'quiz', label: '퀴즈 출제', icon: '🎲', badge: pendingActs, alert: pendingActs > 0 },
     { id: 'photos', label: '사진·말씀', icon: '🖼️', badge: data?.submissions.length || 0 },
+    { id: 'check', label: '점검', icon: '🩺' },
     { id: 'settings', label: '설정', icon: '⚙️' },
   ]
 
@@ -200,6 +201,8 @@ export default function Hq({ session, onLogout }) {
         </>
       )}
 
+      {data && tab === 'check' && <CheckLog code={code} data={data} run={run} />}
+
       {data && tab === 'settings' && (
         <>
           <section>
@@ -244,6 +247,82 @@ export default function Hq({ session, onLogout }) {
         </>
       )}
     </div>
+  )
+}
+
+const KIND_LABEL = { enter: '입장', error: '화면 오류', rpc: '서버 거부', offline: '통신 끊김', geo: '위치', photo: '사진' }
+
+// 기기 문자열에서 기종과 브라우저를 짧게 뽑는다.
+function deviceOf(ua = '') {
+  const os = /iPhone|iPad/.test(ua) ? 'iOS' : /Android/.test(ua) ? '안드로이드' : /Macintosh/.test(ua) ? '맥' : /Windows/.test(ua) ? '윈도' : '기타'
+  const app = /KAKAOTALK/i.test(ua) ? '카카오톡 안' : /NAVER/i.test(ua) ? '네이버 앱' : /SamsungBrowser/.test(ua) ? '삼성 인터넷'
+    : /CriOS|Chrome/.test(ua) ? '크롬' : /Safari/.test(ua) ? '사파리' : '기타'
+  return `${os} · ${app}`
+}
+
+// 점검 탭: 기기가 보낸 접속·오류 기록. 시험과 행사 중 문제를 여기에서 확인한다.
+function CheckLog({ code, data, run }) {
+  const [events, setEvents] = useState(null)
+  const [only, setOnly] = useState('problem')
+  useEffect(() => {
+    let alive = true
+    rpc('evm_events_list', { p_code: code }).then((list) => alive && setEvents(list)).catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [code, data])
+
+  if (!events) return <p className="guide">불러오는 중입니다.</p>
+  // 오답이나 마감처럼 정상 흐름에서 나오는 서버 거부는 문제로 세지 않는다.
+  const expected = (e) => e.kind === 'rpc' && /EVM_(QUIZ_DONE|QUIZ_CLOSED|ORDER_CLOSED|OWN_QUIZ|ACT_EXISTS|BAD_CODE)/.test(e.message || '')
+  const isProblem = (e) => ['error', 'rpc', 'offline', 'photo'].includes(e.kind) ? !expected(e) : e.kind === 'geo' && /실패|없음/.test(e.message || '')
+  const shown = events.filter((e) => (only === 'problem' ? isProblem(e) : only === 'enter' ? e.kind === 'enter' : true))
+  const devices = {}
+  for (const e of events) if (e.kind === 'enter' && e.team_id) (devices[e.team_id] ||= new Set()).add(deviceOf(e.ua))
+
+  return (
+    <section>
+      <h2 className="section">🩺 점검 기록</h2>
+      <p className="guide">
+        팀 화면이 보낸 접속과 오류 기록입니다(최근 300건). 사진과 점수의 진행 상황은 현황 탭에서 봅니다.
+        오답, 마감, 틀린 코드처럼 정상 흐름에서 나오는 거부는 "문제"에 넣지 않았습니다.
+      </p>
+      <div className="hq-summary">
+        <div className={events.some(isProblem) ? 'warn' : ''}><b>{events.filter(isProblem).length}</b><span>문제</span></div>
+        <div><b>{events.filter((e) => e.kind === 'enter').length}</b><span>입장</span></div>
+        <div><b>{Object.keys(devices).length}</b><span>접속한 팀</span></div>
+        <div><b>{events.filter((e) => /KAKAOTALK/i.test(e.ua || '')).length}</b><span>카카오톡 안에서 온 기록</span></div>
+        <div><b>{events.length}</b><span>전체</span></div>
+      </div>
+      {Object.keys(devices).length > 0 && (
+        <p className="guide">
+          팀별 기기: {Object.entries(devices).map(([id, set]) => `${id}팀(${[...set].join(', ')})`).join(' / ')}
+        </p>
+      )}
+      <div className="seg">
+        <button className={only === 'problem' ? 'on' : ''} onClick={() => setOnly('problem')}>문제만</button>
+        <button className={only === 'enter' ? 'on' : ''} onClick={() => setOnly('enter')}>입장</button>
+        <button className={only === 'all' ? 'on' : ''} onClick={() => setOnly('all')}>전체</button>
+        <span className="seg-gap" />
+        <button onClick={() => confirm('점검 기록을 모두 비웁니까?') && run('evm_events_clear', {}, '점검 기록을 비웠습니다.')}>기록 비우기</button>
+      </div>
+      {!shown.length && <p className="guide">해당하는 기록이 없습니다.</p>}
+      <div className="matrix-wrap">
+        <table className="matrix log">
+          <tbody>
+            {shown.map((e) => (
+              <tr key={e.id} className={isProblem(e) ? 'bad' : ''}>
+                <td>{new Date(e.at).toLocaleTimeString('ko-KR', { hour12: false })}</td>
+                <td>{e.team_id ? `${e.team_id}팀` : '-'}</td>
+                <td>{KIND_LABEL[e.kind] || e.kind}</td>
+                <th>{e.message}</th>
+                <td>{deviceOf(e.ua)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   )
 }
 

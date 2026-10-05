@@ -9,12 +9,62 @@ const stateKey = (teamId) => `evm:v2:state:${teamId}`
 
 export class BadCodeError extends Error {}
 
+// 점검 보고. 접속과 오류를 서버에 남겨 시험·행사 중 문제를 추적한다.
+// 같은 내용은 1분에 한 번만, 한 화면에서 최대 40건까지 보낸다. 통신이 끊겼을 때의 보고는 모아 두었다가 연결되면 보낸다.
+const reported = new Map()
+let reportCount = 0
+const waiting = []
+
+function post(event) {
+  return fetch(`${URL_BASE}/rest/v1/rpc/evm_report`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: KEY, Authorization: `Bearer ${KEY}` },
+    body: JSON.stringify(event),
+  })
+}
+
+export function report(kind, message) {
+  const text = String(message ?? '').slice(0, 300)
+  const key = `${kind}:${text}`
+  const now = Date.now()
+  if (reportCount >= 40 || now - (reported.get(key) || 0) < 60000) return
+  reported.set(key, now)
+  reportCount += 1
+  let teamId = null
+  try {
+    teamId = JSON.parse(localStorage.getItem(SESSION_KEY))?.teamId ?? null
+  } catch {
+    /* 세션을 읽지 못하면 팀 없이 보낸다 */
+  }
+  const event = { p_team: teamId, p_kind: kind, p_message: text, p_ua: navigator.userAgent }
+  post(event).catch(() => waiting.length < 20 && waiting.push({ ...event, p_message: `[지연] ${text}`.slice(0, 300) }))
+}
+
+function flushWaiting() {
+  while (waiting.length) post(waiting.shift()).catch(() => {})
+}
+
 export async function rpc(fn, args) {
-  const res = await fetch(`${URL_BASE}/rest/v1/rpc/${fn}`, {
+  let res
+  try {
+    res = await rpcFetch(fn, args)
+  } catch (err) {
+    report('offline', `${fn}: ${err.message}`)
+    throw err
+  }
+  flushWaiting()
+  return rpcRead(fn, res)
+}
+
+function rpcFetch(fn, args) {
+  return fetch(`${URL_BASE}/rest/v1/rpc/${fn}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', apikey: KEY, Authorization: `Bearer ${KEY}` },
     body: JSON.stringify(args),
   })
+}
+
+async function rpcRead(fn, res) {
   const text = await res.text()
   if (!res.ok) {
     let message = text
@@ -23,6 +73,7 @@ export async function rpc(fn, args) {
     } catch {
       /* JSON이 아닌 오류 본문은 그대로 사용한다 */
     }
+    report('rpc', `${fn}: ${String(message).slice(0, 200)}`)
     if (String(message).includes('EVM_BAD_CODE')) throw new BadCodeError('코드가 맞지 않습니다.')
     throw new Error(message || `요청 실패(${res.status})`)
   }
@@ -106,6 +157,7 @@ export function compressPhoto(file, maxSide = 720, quality = 0.7) {
     }
     img.onerror = () => {
       URL.revokeObjectURL(url)
+      report('photo', `읽기 실패: ${file.type || '종류 모름'} ${Math.round(file.size / 1024)}KB`)
       reject(new Error('사진을 읽지 못했습니다.'))
     }
     img.src = url
