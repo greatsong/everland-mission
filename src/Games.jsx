@@ -196,6 +196,7 @@ function ActAuthor({ code, teamId, onDone }) {
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const fileRef = useRef(null)
+  const albumRef = useRef(null)
 
   async function onFile(e) {
     const file = e.target.files?.[0]
@@ -232,7 +233,11 @@ function ActAuthor({ code, teamId, onDone }) {
       </p>
       {photo && <img className="sheet-photo" src={photo} alt="찍은 사진" />}
       <input ref={fileRef} type="file" accept="image/*" capture="environment" hidden onChange={onFile} />
-      <button className="ghost" onClick={() => fileRef.current.click()}>{photo ? '다시 찍기' : '사진 찍기'}</button>
+      <input ref={albumRef} type="file" accept="image/*" hidden onChange={onFile} />
+      <div className="row">
+        <button className="ghost" onClick={() => fileRef.current.click()}>{photo ? '다시 찍기' : '사진 찍기'}</button>
+        <button className="ghost" onClick={() => albumRef.current.click()}>앨범에서 고르기</button>
+      </div>
       <div className="login answer-form">
         <input value={answer} onChange={(e) => setAnswer(e.target.value)} maxLength={40} placeholder="정답(낱말 하나)" aria-label="정답" autoComplete="off" />
       </div>

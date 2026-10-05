@@ -330,6 +330,7 @@ function Bingo({ code, teamId, board, done, data, refresh, onCapture, onRemove, 
   const [selected, setSelected] = useState(null)
   const [busy, setBusy] = useState(false)
   const fileRef = useRef(null)
+  const albumRef = useRef(null) // 앨범에서 고르기(스크린샷 포함)
   const rec = selected && done[selected.id]
 
   async function onPhoto(e) {
@@ -366,8 +367,12 @@ function Bingo({ code, teamId, board, done, data, refresh, onCapture, onRemove, 
             <h2>{selected.title}</h2>
             {rec && <SheetPhoto key={rec.at} code={code} teamId={teamId} missionId={selected.id} rec={rec} />}
             <input ref={fileRef} type="file" accept="image/*" capture="environment" hidden onChange={onPhoto} />
+            <input ref={albumRef} type="file" accept="image/*" hidden onChange={onPhoto} />
             <button className="primary" disabled={busy} onClick={() => fileRef.current.click()}>
               {busy ? '저장 중입니다' : rec ? '다시 찍기' : '사진 찍기'}
+            </button>
+            <button className="ghost" disabled={busy} onClick={() => albumRef.current.click()}>
+              앨범에서 고르기
             </button>
             {rec && (
               <button className="link" disabled={busy} onClick={() => confirm('이 사진을 지웁니까? 빙고 칸도 비워집니다.') && onRemove(selected.id)}>
@@ -593,7 +598,7 @@ function TeamProfile({ code, teamId, data, refresh }) {
         <button className="profile-photo" onClick={() => fileRef.current.click()} aria-label="팀 인증 사진 찍기">
           {photo ? <img src={photo} alt="찍은 팀 사진" /> : <span>📸<small>팀 사진</small></span>}
         </button>
-        <input ref={fileRef} type="file" accept="image/*" capture="environment" hidden onChange={onFile} />
+        <input ref={fileRef} type="file" accept="image/*" hidden onChange={onFile} />
         <input value={teachers} onChange={(e) => setTeachers(e.target.value)} maxLength={40} placeholder="담당 선생님 이름(예: 김○○, 이○○)" aria-label="담당 선생님 이름" />
       </div>
       {message && <p className="error">{message}</p>}
