@@ -82,6 +82,8 @@ create table if not exists evm_teams (
 );
 alter table evm_teams enable row level security;
 alter table evm_scores enable row level security;
+-- 처음 올린 시각. 사진을 다시 올려도 바뀌지 않는다(타임어택 순위는 이 시각으로 정한다).
+alter table evm_submissions add column if not exists first_at timestamptz not null default now();
 alter table evm_config enable row level security;
 alter table evm_submissions enable row level security;
 alter table evm_notices enable row level security;
@@ -113,7 +115,7 @@ begin
   return json_build_object(
     'submissions', coalesce((
       select json_agg(json_build_object(
-        'team_id', team_id, 'mission_id', mission_id, 'cheers', cheers, 'at', created_at
+        'team_id', team_id, 'mission_id', mission_id, 'cheers', cheers, 'at', created_at, 'first_at', first_at
       ) order by created_at desc) from evm_submissions), '[]'::json),
     'notice', (select json_build_object('id', id, 'body', body, 'at', created_at)
                from evm_notices order by id desc limit 1),

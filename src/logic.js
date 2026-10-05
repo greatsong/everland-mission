@@ -72,11 +72,11 @@ export function missionInfo(missionId, orders = []) {
 export const RUSH_POINTS = [30, 20, 10]
 export const rushPoints = (rank) => (rank ? RUSH_POINTS[rank - 1] || 5 : 0)
 
-// 타임어택 사진 지령에서 팀의 제출 순위(1부터). 서버에 올라간 시각 기준이며 미제출이면 0.
+// 타임어택 사진 지령에서 팀의 제출 순위(1부터). 처음 올린 시각 기준이며(다시 올려도 순위는 그대로) 미제출이면 0.
 export function rushRank(data, orderId, teamId) {
   const subs = (data?.submissions || [])
     .filter((s) => s.mission_id === `order:${orderId}`)
-    .sort((a, b) => new Date(a.at) - new Date(b.at))
+    .sort((a, b) => new Date(a.first_at || a.at) - new Date(b.first_at || b.at))
   return subs.findIndex((s) => s.team_id === teamId) + 1
 }
 

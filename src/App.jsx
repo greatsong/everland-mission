@@ -216,9 +216,11 @@ function TeamHome({ session, onLeave, onLogout }) {
   const done = useMemo(() => {
     const merged = { ...state.done }
     for (const s of data?.submissions || []) {
-      if (s.team_id === teamId && !merged[s.mission_id] && !state.removed.includes(s.mission_id)) {
-        merged[s.mission_id] = { at: s.at, remote: true }
-      }
+      if (s.team_id !== teamId || state.removed.includes(s.mission_id)) continue
+      const local = merged[s.mission_id]
+      // 같은 팀의 다른 기기가 나중에 다시 올렸으면 서버의 사진을 보여 준다.
+      const newerOnServer = local?.synced && new Date(s.at).getTime() > local.synced + 5000
+      if (!local || newerOnServer) merged[s.mission_id] = { at: s.at, remote: true }
     }
     return merged
   }, [state, data, teamId])
