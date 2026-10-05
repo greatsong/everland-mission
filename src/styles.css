@@ -375,3 +375,32 @@ h1, h2, p, figure { margin: 0; }
 @keyframes star-rise { 0% { transform: translate(-50%, 0) scale(0.6); opacity: 0; } 20% { opacity: 1; } 100% { transform: translate(-50%, -38px) scale(1.5); opacity: 0; } }
 .map-recent { margin: 6px 0 0; padding: 7px 12px; border-radius: 10px; background: #fff3bf; border: 1px solid #ffd43b; font-size: 14px; font-weight: 700; }
 @media (prefers-reduced-motion: reduce) { .map-pin.live::before, .map-pin.live::after, .map-pin.burst, .map-star { animation: none; } .map-star { opacity: 1; } }
+
+/* ===== 지도 표시 개편: 위치 점 + 이름표, 겹침 벌리기, 차분한 바탕 ===== */
+.team-map-box .leaflet-tile-pane { filter: grayscale(0.6) brightness(1.07) contrast(0.92); }
+.pin-wrap { position: relative; width: 0; height: 0; }
+.pin-dot { position: absolute; left: -7px; top: -7px; width: 14px; height: 14px; border-radius: 50%; background: var(--pin, #868e96); border: 3px solid #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); }
+.pin-dot.stale { background: #fff; border: 3px dashed var(--pin, #868e96); opacity: 0.8; }
+.pin-wrap .map-pin { position: absolute; left: 0; top: 0; min-width: 0; padding: 3px 9px 4px; border-radius: 12px; line-height: 1.15; font-size: 12.5px; }
+.pin-wrap .map-pin.stale { opacity: 0.55; }
+/* 파동은 위치 점에서 한 겹만 퍼진다 */
+.map-pin.live::before, .map-pin.live::after { content: none; }
+.pin-dot.live::after { content: ''; position: absolute; left: 50%; top: 50%; width: 14px; height: 14px; border-radius: 50%; border: 3px solid var(--pin); transform: translate(-50%, -50%); animation: dot-wave 2.2s ease-out infinite; pointer-events: none; }
+@keyframes dot-wave { 0% { transform: translate(-50%, -50%) scale(1); opacity: 0.8; } 100% { transform: translate(-50%, -50%) scale(4.5); opacity: 0; } }
+.pin-wrap .map-pin.burst { animation: label-pop 0.9s ease-out 2; z-index: 5; }
+@keyframes label-pop { 0%, 100% { box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4); filter: none; } 40% { box-shadow: 0 0 0 6px rgba(255, 212, 59, 0.9); filter: brightness(1.2); } }
+.map-star { white-space: nowrap; font-weight: 900; color: #1f2a24; text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 6px #fff; font-size: 17px; }
+.map-tools { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 4px 0 0; font-size: 13px; }
+.map-tools label { display: inline-flex; align-items: center; gap: 5px; }
+.fx-tools { padding-top: 6px; border-top: 1px dashed var(--line); margin-top: 8px; color: var(--muted); }
+.map-legend { display: flex; gap: 14px; flex-wrap: wrap; margin: 6px 0 0; font-size: 12.5px; color: var(--muted); }
+.map-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.map-legend .pin-dot { position: relative; left: 0; top: 0; --pin: #2f9e6e; flex-shrink: 0; }
+.map-feed { margin-top: 8px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; }
+.feed-row { display: flex; gap: 8px; align-items: baseline; font-size: 13.5px; padding: 3px 0; }
+.feed-row time { color: var(--muted); font-variant-numeric: tabular-nums; }
+.feed-row span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.feed-row em { font-style: normal; font-weight: 800; color: var(--team); }
+@media (prefers-reduced-motion: reduce) { .pin-dot.live::after, .pin-wrap .map-pin.burst { animation: none; } }
+.map-legend .pin-dot.live::after { content: none; }
+.map-legend .pin-dot.live { box-shadow: 0 0 0 4px rgba(47, 158, 110, 0.3); }

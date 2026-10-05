@@ -137,7 +137,7 @@ begin
       select json_agg(json_build_object('team_id', team_id, 'teachers', teachers,
         'photo_at', case when photo is not null then updated_at end)) from evm_teams), '[]'::json),
     'scores', coalesce((
-      select json_agg(json_build_object('team_id', team_id, 'game_id', game_id, 'score', score)) from evm_scores), '[]'::json),
+      select json_agg(json_build_object('team_id', team_id, 'game_id', game_id, 'score', score, 'at', created_at)) from evm_scores), '[]'::json),
     -- 팀 위치는 본부에만 보낸다. 본부가 허용하면(share_locations) 팀에게도 보낸다.
     'share_locations', coalesce((select value from evm_config where key = 'share_locations'), 'off') = 'on',
     'locations', coalesce((
