@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { TEAMS, MISSIONS } from './data.js'
+import { TEAMS, MISSIONS, SCORE } from './data.js'
 import { rpc, BadCodeError, loadSession, saveSession, loadState, saveState, compressPhoto, report } from './store.js'
 import { boardFor, teamScore, doneByTeam, missionInfo, minutesAgo, rushRank, rushPoints } from './logic.js'
 import { useRemote, usePhoto, Photo, VerseView, Ranking, teamsOf, useLocationShare, LocationList, everlandMapUrl, TeamAvatar, teachersOf } from './shared.jsx'
@@ -368,7 +368,10 @@ function Bingo({ code, teamId, board, done, data, refresh, onCapture, onRemove, 
     <>
       <TeamProfile code={code} teamId={teamId} data={data} refresh={refresh} />
       <Orders code={code} teamId={teamId} data={data} done={done} refresh={refresh} onSelect={setSelected} />
-      <p className="guide">칸을 눌러 미션을 확인하고 사진을 찍습니다. 가로·세로·대각선 한 줄을 채우면 빙고입니다.</p>
+      <p className="guide">
+        칸을 눌러 미션을 확인하고 사진을 찍습니다. 칸 하나는 {SCORE.perMission}점이고, 가로·세로·대각선 한 줄을 완성하면 {SCORE.perLine}점이 더해집니다.
+        많이 채울수록 점수가 올라갑니다.
+      </p>
       <div className="board">
         {board.map((m) => (
           // 완료 여부가 바뀌면 사진을 새로 읽도록 key에 시각을 넣는다.
