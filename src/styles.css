@@ -212,7 +212,8 @@ h1, h2, p, figure { margin: 0; }
 .sheet.inbox h2 { text-align: center; }
 .sheet.inbox .hq-notice { margin: 0; }
 .inbox-item { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
-.inbox-item.finished { opacity: 0.6; }
+.inbox-item.finished { background: #ebfbee; border-color: #8ce99a; }
+.inbox-item.finished .order-meta b { color: #2b8a3e; }
 .inbox-item .order-body { font-size: 15px; }
 .quiz-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 6px; }
 .quiz-chip { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 8px 0; display: flex; flex-direction: column; align-items: center; gap: 2px; }
@@ -349,3 +350,12 @@ h1, h2, p, figure { margin: 0; }
 .bingo-toast { position: fixed; left: 50%; top: 38%; transform: translate(-50%, -50%); z-index: 15; padding: 18px 28px; border-radius: 20px; background: #1f2a24; color: #ffd43b; font-size: 26px; font-weight: 900; white-space: nowrap; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35); animation: alert-pop 0.3s ease-out; pointer-events: none; }
 .bingo-toast span { font-size: 30px; }
 @media (prefers-reduced-motion: reduce) { .bingo-toast { animation: none; } }
+
+/* 완료한 지령 */
+.orders-done { background: #ebfbee; border: 1px solid #8ce99a; border-radius: 14px; overflow: hidden; }
+.orders-done-toggle { width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; font-weight: 700; color: #2b8a3e; }
+.orders-done-toggle span { font-weight: 400; font-size: 13px; text-decoration: underline; }
+.order-done { padding: 10px 14px; border-top: 1px solid #b2f2bb; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.order-done .order-meta { opacity: 1; color: var(--muted); }
+.order-done .order-meta b { color: #2b8a3e; }
+.order-done .order-body { font-size: 15px; }

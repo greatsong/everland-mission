@@ -445,30 +445,44 @@ function Bingo({ code, teamId, board, done, data, refresh, onCapture, onRemove, 
 
 // 본부 지령 목록. 사진 미션은 사진을 올리고, 정답 미션은 낱말을 입력한다.
 function Orders({ code, teamId, data, done, refresh, onSelect }) {
-  const orders = (data?.orders || []).filter((o) => o.open || orderFinished(data, teamId, done, o))
-  if (!orders.length) return null
+  const [showDone, setShowDone] = useState(false)
+  const all = data?.orders || []
+  // 해야 할 지령(진행 중이고 아직 하지 않은 것)만 크게 보여 주고, 완료한 지령은 접어 둔다.
+  const todo = all.filter((o) => o.open && !orderFinished(data, teamId, done, o))
+  const finished = all.filter((o) => orderFinished(data, teamId, done, o))
+  if (!todo.length && !finished.length) return null
   return (
     <section className="orders">
-      <h2 className="section">📢 본부 지령</h2>
-      {orders.map((o) => {
-        const key = `order:${o.id}`
-        const finished = orderFinished(data, teamId, done, o)
-        return (
-          <div key={o.id} className={`order ${finished ? 'finished' : ''}`}>
-            <p className="order-meta">
-              {orderLabel(o)}{!o.open && ' · 마감'}
-              {finished && <b> · 완료 ✓{o.rush && ` ${orderRank(data, teamId, o)}등`}</b>}
-            </p>
-            <p className="order-body">{o.body}</p>
-            {o.kind === 'photo' && o.open && (
-              <button className="primary" onClick={() => onSelect({ id: key, icon: '📢', title: o.body })}>
-                {finished ? '사진 확인·다시 찍기' : '사진 올리기'}
-              </button>
-            )}
-            {o.kind === 'answer' && o.open && !finished && <AnswerForm code={code} teamId={teamId} order={o} refresh={refresh} />}
-          </div>
-        )
-      })}
+      {todo.length > 0 && <h2 className="section">📢 본부 지령</h2>}
+      {todo.map((o) => (
+        <div key={o.id} className="order">
+          <p className="order-meta">{orderLabel(o)}</p>
+          <p className="order-body">{o.body}</p>
+          {o.kind === 'photo' && (
+            <button className="primary" onClick={() => onSelect({ id: `order:${o.id}`, icon: '📢', title: o.body })}>사진 올리기</button>
+          )}
+          {o.kind === 'answer' && <AnswerForm code={code} teamId={teamId} order={o} refresh={refresh} />}
+        </div>
+      ))}
+      {finished.length > 0 && (
+        <div className="orders-done">
+          <button className="orders-done-toggle" onClick={() => setShowDone(!showDone)} aria-expanded={showDone}>
+            ✅ 완료한 지령 {finished.length}개 <span>{showDone ? '접기' : '보기'}</span>
+          </button>
+          {showDone &&
+            finished.map((o) => (
+              <div key={o.id} className="order-done">
+                <p className="order-meta">
+                  {orderLabel(o)} · <b>완료 ✓{o.rush && ` ${orderRank(data, teamId, o)}등`}</b>{!o.open && ' · 마감'}
+                </p>
+                <p className="order-body">{o.body}</p>
+                {o.kind === 'photo' && o.open && (
+                  <button className="link" onClick={() => onSelect({ id: `order:${o.id}`, icon: '📢', title: o.body })}>사진 확인·다시 찍기</button>
+                )}
+              </div>
+            ))}
+        </div>
+      )}
     </section>
   )
 }
@@ -503,7 +517,7 @@ function Inbox({ data, teamId, done, onClose, onGo }) {
           return (
             <div key={o.id} className={`inbox-item ${finished ? 'finished' : ''}`}>
               <p className="order-meta">
-                {orderLabel(o)} · {finished ? '완료 ✓' : o.open ? '진행 중' : '마감'}
+                {orderLabel(o)} · {finished ? <b>완료 ✓</b> : o.open ? '진행 중' : '마감'}
               </p>
               <p className="order-body">{o.body}</p>
             </div>
