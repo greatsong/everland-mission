@@ -18,16 +18,21 @@ export function boardFor(teamId) {
   return seededShuffle(MISSIONS, teamId)
 }
 
-export function countLines(board, done) {
+// 완성된 줄 목록. 줄마다 칸 번호(0~15) 네 개를 돌려준다.
+export function completedLines(board, done) {
   const hit = board.map((m) => Boolean(done[m.id]))
-  const at = (r, c) => hit[r * SIZE + c]
   const idx = [...Array(SIZE).keys()]
-  let lines = 0
-  for (const r of idx) if (idx.every((c) => at(r, c))) lines++
-  for (const c of idx) if (idx.every((r) => at(r, c))) lines++
-  if (idx.every((i) => at(i, i))) lines++
-  if (idx.every((i) => at(i, SIZE - 1 - i))) lines++
-  return lines
+  const all = [
+    ...idx.map((r) => idx.map((c) => r * SIZE + c)),
+    ...idx.map((c) => idx.map((r) => r * SIZE + c)),
+    idx.map((i) => i * SIZE + i),
+    idx.map((i) => i * SIZE + (SIZE - 1 - i)),
+  ]
+  return all.filter((line) => line.every((i) => hit[i]))
+}
+
+export function countLines(board, done) {
+  return completedLines(board, done).length
 }
 
 export function scoreOf(board, done) {

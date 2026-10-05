@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { TEAMS, MISSIONS, SCORE } from './data.js'
 import { rpc, BadCodeError, loadSession, saveSession, loadState, saveState, compressPhoto, report } from './store.js'
-import { boardFor, teamScore, doneByTeam, missionInfo, minutesAgo, rushRank } from './logic.js'
+import { boardFor, teamScore, doneByTeam, missionInfo, minutesAgo, rushRank, completedLines } from './logic.js'
 import { useRemote, usePhoto, Photo, VerseView, Ranking, teamsOf, useLocationShare, LocationList, everlandMapUrl, TeamAvatar, teachersOf } from './shared.jsx'
 import { lazy, Suspense } from 'react'
 import Games from './Games.jsx'
@@ -329,17 +329,17 @@ function TeamHome({ session, onLeave, onLogout }) {
   )
 }
 
-function Cell({ code, teamId, mission, rec, onClick }) {
+function Cell({ code, teamId, mission, rec, inLine, onClick }) {
   const src = usePhoto(code, teamId, mission.id, rec?.at, rec?.photo)
   const done = Boolean(rec)
   return (
     <button
-      className={`cell ${done ? 'done' : ''}`}
+      className={`cell ${done ? 'done' : ''} ${inLine ? 'in-line' : ''}`}
       style={done && src ? { backgroundImage: `url(${src})` } : undefined}
       onClick={onClick}
-      aria-label={`${mission.title}${done ? ' (완료)' : ''}`}
+      aria-label={`${mission.title}${done ? ' (완료)' : ''}${inLine ? ' (빙고 줄)' : ''}`}
     >
-      {done ? <span className="check">✓</span> : <span className="cell-icon">{mission.icon}</span>}
+      {done ? <span className="check">{inLine ? '★' : '✓'}</span> : <span className="cell-icon">{mission.icon}</span>}
       <span className="cell-title">{mission.title}</span>
     </button>
   )
@@ -350,6 +350,23 @@ function Bingo({ code, teamId, board, done, data, refresh, onCapture, onRemove, 
   const [busy, setBusy] = useState(false)
   const fileRef = useRef(null)
   const albumRef = useRef(null) // 앨범에서 고르기(스크린샷 포함)
+
+  // 완성된 줄과 그 줄에 속한 칸. 줄이 새로 완성되면 잠깐 축하 표시를 띄운다.
+  const lines = completedLines(board, done)
+  const lineCells = new Set(lines.flat())
+  const [cheer, setCheer] = useState(0)
+  const prevLines = useRef(null)
+  useEffect(() => {
+    // 처음 화면을 열 때는 띄우지 않고, 줄 수가 늘었을 때만 띄운다.
+    if (prevLines.current !== null && lines.length > prevLines.current) {
+      setCheer(lines.length)
+      navigator.vibrate?.(200)
+      const timer = setTimeout(() => setCheer(0), 3000)
+      prevLines.current = lines.length
+      return () => clearTimeout(timer)
+    }
+    prevLines.current = lines.length
+  }, [lines.length])
   const rec = selected && done[selected.id]
 
   async function onPhoto(e) {
@@ -374,12 +391,29 @@ function Bingo({ code, teamId, board, done, data, refresh, onCapture, onRemove, 
         칸을 눌러 미션을 확인하고 사진을 찍습니다. 칸 하나는 {SCORE.perMission}점이고, 가로·세로·대각선 한 줄을 완성하면 {SCORE.perLine}점이 더해집니다.
         많이 채울수록 점수가 올라갑니다.
       </p>
+      {lines.length > 0 && (
+        <p className="bingo-banner">🎉 빙고 {lines.length}줄 완성 · 줄 점수 +{lines.length * SCORE.perLine}점</p>
+      )}
       <div className="board">
-        {board.map((m) => (
+        {board.map((m, i) => (
           // 완료 여부가 바뀌면 사진을 새로 읽도록 key에 시각을 넣는다.
-          <Cell key={`${m.id}:${done[m.id]?.at || 0}`} code={code} teamId={teamId} mission={m} rec={done[m.id]} onClick={() => setSelected(m)} />
+          <Cell key={`${m.id}:${done[m.id]?.at || 0}`} code={code} teamId={teamId} mission={m} rec={done[m.id]} inLine={lineCells.has(i)} onClick={() => setSelected(m)} />
         ))}
+        {/* 완성된 줄 위에 선을 긋는다. 칸 한 개의 크기를 1로 본 좌표다. */}
+        <svg className="board-lines" viewBox="0 0 4 4" aria-hidden="true">
+          {lines.map((line) => {
+            const [a, b] = [line[0], line[3]]
+            return (
+              <line key={line.join('-')} x1={(a % 4) + 0.5} y1={Math.floor(a / 4) + 0.5} x2={(b % 4) + 0.5} y2={Math.floor(b / 4) + 0.5} />
+            )
+          })}
+        </svg>
       </div>
+      {cheer && (
+        <div className="bingo-toast" role="status">
+          <span>🎊</span> 빙고! {cheer}줄 완성
+        </div>
+      )}
       <p className="safety">뛰지 않습니다. 사진은 안전한 곳에 멈춰서 찍습니다.</p>
 
       {selected && (

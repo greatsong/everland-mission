@@ -338,3 +338,14 @@ h1, h2, p, figure { margin: 0; }
 .select > * { max-width: 440px; margin-left: auto; margin-right: auto; }
 .hq-top h1 small { font-size: 13px; font-weight: 400; color: var(--muted); margin-left: 6px; }
 .ghost.map-link { padding: 12px; border-radius: 14px; color: var(--ink); }
+
+/* 완성된 빙고 줄 */
+.board { position: relative; }
+.board-lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.board-lines line { stroke: #f59f00; stroke-width: 0.09; stroke-linecap: round; opacity: 0.9; filter: drop-shadow(0 0 0.04px #fff); }
+.cell.in-line { border-color: #f59f00; border-width: 3px; box-shadow: 0 0 0 2px rgba(245, 159, 0, 0.35); }
+.cell.in-line .check { background: #f59f00; }
+.bingo-banner { margin-bottom: 8px; padding: 9px 12px; border-radius: 12px; background: #fff3bf; border: 1px solid #ffd43b; font-weight: 800; text-align: center; }
+.bingo-toast { position: fixed; left: 50%; top: 38%; transform: translate(-50%, -50%); z-index: 15; padding: 18px 28px; border-radius: 20px; background: #1f2a24; color: #ffd43b; font-size: 26px; font-weight: 900; white-space: nowrap; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35); animation: alert-pop 0.3s ease-out; pointer-events: none; }
+.bingo-toast span { font-size: 30px; }
+@media (prefers-reduced-motion: reduce) { .bingo-toast { animation: none; } }
