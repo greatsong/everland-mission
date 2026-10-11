@@ -409,7 +409,7 @@ function Bingo({ code, teamId, board, done, data, refresh, onCapture, onRemove, 
           })}
         </svg>
       </div>
-      {cheer && (
+      {cheer > 0 && (
         <div className="bingo-toast" role="status">
           <span>🎊</span> 빙고! {cheer}줄 완성
         </div>
