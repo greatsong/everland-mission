@@ -81,14 +81,6 @@ h1, h2, p, figure { margin: 0; }
 .versus { display: flex; align-items: center; justify-content: center; gap: 12px; font-size: 26px; font-weight: 800; word-break: keep-all; }
 .versus i { font-size: 14px; color: var(--muted); font-style: normal; }
 
-/* 말씀 */
-.verse { display: flex; flex-wrap: wrap; gap: 6px; background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 18px; }
-.piece { padding: 6px 10px; border-radius: 10px; font-size: 17px; font-weight: 700; color: var(--line); background: var(--bg); border: 2px solid transparent; }
-.piece.open { color: var(--ink); background: #e9f5ec; }
-.piece.mine { border: 2px dashed var(--team); color: var(--team); background: none; }
-.piece.mine.open { border-style: solid; background: var(--team); color: #fff; }
-.verse-ref { margin-top: 10px; text-align: right; color: var(--muted); font-size: 13px; }
-.verse-count { margin-top: 14px; text-align: center; font-size: 16px; }
 
 /* 사진 */
 .photos { display: flex; flex-direction: column; gap: 14px; }
@@ -149,14 +141,7 @@ h1, h2, p, figure { margin: 0; }
 .show-caption b { padding: 2px 12px; border-radius: 999px; margin-right: 6px; }
 .show-bar { position: absolute; left: 0; right: 0; bottom: 14px; text-align: center; font-size: 13px; color: #aaa; }
 .show-exit { position: absolute; top: 14px; right: 16px; color: #ccc; font-size: 14px; }
-.show-verse { max-width: 900px; padding: 24px; text-align: center; }
-.show-verse p { font-size: clamp(24px, 4.5vw, 52px); font-weight: 800; line-height: 1.5; word-break: keep-all; }
-.show-verse small { display: block; margin-top: 18px; color: #bbb; font-size: clamp(14px, 2vw, 22px); }
 
-.verse-block + .verse-block { margin-top: 14px; }
-.show-verse > div + div { margin-top: 5vh; }
-.show-verse p { font-size: clamp(20px, 3.4vw, 42px); }
-.show-verse small { margin-top: 10px; }
 
 .team-count { margin-top: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; }
 .team-count button { border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; background: var(--card); }

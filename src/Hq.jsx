@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { TEAMS, MISSIONS, QUIZ_KINDS, SEED_QUIZ, toChosung } from './data.js'
 import { rpc, suggestQuiz } from './store.js'
 import { doneByTeam, missionInfo, rushRank, locationGroups, agoText } from './logic.js'
-import { useRemote, Photo, VerseView, Ranking, teamsOf, LocationList, useLocationShare, teacherMap, withHere, HQ_TEAM, SplitNote } from './shared.jsx'
+import { useRemote, Photo, Ranking, teamsOf, LocationList, useLocationShare, teacherMap, withHere, HQ_TEAM, SplitNote } from './shared.jsx'
 
 const TeamMap = lazy(() => import('./TeamMap.jsx'))
 
@@ -19,10 +19,6 @@ export default function Hq({ session, onLogout }) {
   const locate = useLocationShare(code, 0) // 본부 위치(팀 번호 0)
 
   const doneMap = useMemo(() => doneByTeam(data?.submissions || []), [data])
-  const counts = useMemo(
-    () => Object.fromEntries(TEAMS.map((t) => [t.id, MISSIONS.filter((m) => doneMap[t.id][m.id]).length])),
-    [doneMap],
-  )
 
   // 경로 보기를 켠 동안 서버 상태가 갱신될 때마다 경로도 다시 받는다.
   const showTracks = tracks !== null
@@ -74,7 +70,6 @@ export default function Hq({ session, onLogout }) {
 
   const teams = teamsOf(data)
   const openOrders = data?.orders.filter((o) => o.open).length || 0
-  const pendingActs = data?.quizzes.filter((q) => q.status === 'pending').length || 0
   const openQuizzes = data?.quizzes.filter((q) => q.status === 'open').length || 0
   // 시간대별 위치 보기의 시작 시각(ms)과 그 안에 쌓인 기록 수
   const from = data ? new Date(data.now).getTime() - hours * 3600000 : 0
@@ -84,8 +79,8 @@ export default function Hq({ session, onLogout }) {
   const TABS = [
     { id: 'status', label: '현황', icon: '📊' },
     { id: 'orders', label: '지령·알림', icon: '📢', badge: openOrders },
-    { id: 'quiz', label: '퀴즈 출제', icon: '🎲', badge: pendingActs, alert: pendingActs > 0 },
-    { id: 'photos', label: '사진·말씀', icon: '🖼️', badge: data?.submissions.length || 0 },
+    { id: 'quiz', label: '퀴즈 출제', icon: '🎲' },
+    { id: 'photos', label: '사진', icon: '🖼️', badge: data?.submissions.length || 0 },
     { id: 'check', label: '점검', icon: '🩺' },
     { id: 'settings', label: '설정', icon: '⚙️' },
   ]
@@ -117,7 +112,6 @@ export default function Hq({ session, onLogout }) {
             <div><b>{data.submissions.length}</b><span>올라온 사진</span></div>
             <div><b>{openOrders}</b><span>진행 중 지령</span></div>
             <div><b>{openQuizzes}</b><span>출제 중 퀴즈</span></div>
-            <div className={pendingActs ? 'warn' : ''}><b>{pendingActs}</b><span>승인 대기</span></div>
             <div><b>{located}/{teams.length}</b><span>위치 보낸 팀</span></div>
           </div>
           <div className="hq-grid">
@@ -174,10 +168,6 @@ export default function Hq({ session, onLogout }) {
       {data && tab === 'photos' && (
         <>
           <section>
-            <h2 className="section">📖 말씀 조각</h2>
-            <VerseView counts={counts} teams={teams} />
-          </section>
-          <section>
             <h2 className="section">올라온 사진 {data.submissions.length}장</h2>
             {!data.submissions.length && <p className="guide">아직 올라온 사진이 없습니다.</p>}
             <div className="hq-photos">
@@ -224,7 +214,7 @@ export default function Hq({ session, onLogout }) {
                   {n}팀
                 </button>
               ))}
-              <small>말씀 조각 배분이 달라지므로 행사 시작 전에 정합니다.</small>
+              <small>팀 선택 화면과 순위에 표시되는 팀 수입니다.</small>
             </p>
           </section>
           <section>
@@ -248,7 +238,7 @@ export default function Hq({ session, onLogout }) {
           </section>
           <section>
             <h2 className="section">기록 지우기</h2>
-            <p className="guide">사진, 점수, 지령, 위치, 팀 인증 사진, 팀이 낸 몸으로 말해요 문제를 모두 지웁니다. 본부가 출제한 퀴즈 문제, 설정, 담당 선생님 이름은 남습니다. 시험을 마친 뒤나 행사가 끝난 뒤에 사용합니다.</p>
+            <p className="guide">사진, 점수, 지령, 위치, 팀 인증 사진을 모두 지웁니다. 본부가 출제한 퀴즈 문제, 설정, 담당 선생님 이름은 남습니다. 시험을 마친 뒤나 행사가 끝난 뒤에 사용합니다.</p>
             <button className="danger" onClick={wipe}>모든 사진과 기록 지우기</button>
           </section>
         </>
@@ -473,7 +463,6 @@ function Matrix({ data, teams, doneMap }) {
   const orders = [...data.orders].reverse()
   const solvedCount = (teamId, kind) =>
     data.quizzes.filter((q) => q.kind === kind && data.scores.some((s) => s.team_id === teamId && s.game_id === `quiz:${q.id}` && s.score > 0)).length
-  const authorBonus = (teamId) => data.scores.filter((s) => s.team_id === teamId && s.game_id.startsWith('qa:')).reduce((sum, s) => sum + s.score, 0)
   return (
     <div className="matrix-wrap">
       <table className="matrix">
@@ -505,10 +494,6 @@ function Matrix({ data, teams, doneMap }) {
               </tr>
             )
           })}
-          <tr className="matrix-quiz">
-            <th>🙆 몸으로 말해요 출제 점수</th>
-            {teams.map((t) => <td key={t.id}>{authorBonus(t.id) || ''}</td>)}
-          </tr>
         </tbody>
       </table>
     </div>
@@ -522,7 +507,6 @@ function QuizAdmin({ code, data, teams, run }) {
   const [kind, setKind] = useState('chosung')
   const list = data.quizzes.filter((q) => q.kind === kind)
   const drafts = list.filter((q) => q.status === 'draft').length
-  const pendingActs = data.quizzes.filter((q) => q.status === 'pending').length
 
   function seed() {
     if (!confirm(`기본 문제 ${SEED_QUIZ.length}개를 보관 상태로 넣습니다. 이미 넣었다면 문제가 중복됩니다. 진행합니까?`)) return
@@ -535,44 +519,36 @@ function QuizAdmin({ code, data, teams, run }) {
         {QUIZ_KINDS.map((k) => (
           <button key={k.id} className={kind === k.id ? 'on' : ''} onClick={() => setKind(k.id)}>
             {k.icon} {k.title} {data.quizzes.filter((q) => q.kind === k.id).length}
-            {k.id === 'act' && pendingActs > 0 && <b className="badge">{pendingActs}</b>}
           </button>
         ))}
       </div>
 
-      {kind === 'act' ? (
-        <p className="guide">팀이 사진과 정답을 보내면 여기에 표시됩니다. 승인하면 다른 팀에게 출제되고, 맞힌 팀은 10점, 출제한 팀은 맞힌 팀마다 5점을 받습니다.</p>
-      ) : (
-        <QuizForm key={kind} kind={kind} code={code} run={run} />
-      )}
+      <QuizForm key={kind} kind={kind} code={code} run={run} />
 
       <p className="quiz-tools">
-        {kind !== 'act' && drafts > 0 && (
+        {drafts > 0 && (
           <button className="link" onClick={() => run('evm_quiz_open_all', { p_kind: kind }, '보관 중인 문제를 모두 출제했습니다.')}>보관 {drafts}개 모두 출제</button>
         )}
-        {kind !== 'act' && <button className="link" onClick={seed}>기본 문제 불러오기</button>}
+        <button className="link" onClick={seed}>기본 문제 불러오기</button>
       </p>
 
       {!list.length && <p className="guide">문제가 없습니다.</p>}
       <ul className="order-list">
         {list.map((q) => {
           const solvers = teams.filter((t) => data.scores.some((s) => s.team_id === t.id && s.game_id === `quiz:${q.id}` && s.score > 0))
-          const author = TEAMS.find((t) => t.id === q.author_team)
           return (
             <li key={q.id} className={q.status === 'closed' ? 'closed' : ''}>
               <p className="order-meta">
                 <b className={`status-chip ${q.status}`}>{STATUS_LABEL[q.status]}</b> {q.points}점
-                {q.kind === 'bible' && (q.choices ? ' · 객관식' : ' · 단답형')}{author && ` · ${author.name} 출제`} · 맞힌 팀 {solvers.length}
+                {q.kind === 'bible' && (q.choices ? ' · 객관식' : ' · 단답형')} · 맞힌 팀 {solvers.length}
                 {solvers.length > 0 && ` (${solvers.map((t) => t.name).join(', ')})`}
               </p>
-              {q.kind === 'act' && <HqQuizPhoto code={code} quizId={q.id} />}
               <p className="order-body">
                 {q.body}
                 <small> 정답: {q.choices ? q.choices[Number(q.answer)] : q.answer}{q.hint && ` · 힌트: ${q.hint}`}</small>
               </p>
               {q.choices && <p className="order-meta">{q.choices.join(' / ')}</p>}
               <p className="quiz-tools">
-                {q.status === 'pending' && <button className="link" onClick={() => run('evm_quiz_set', { p_id: q.id, p_status: 'open' }, '승인해 출제했습니다.')}>승인하고 출제</button>}
                 {q.status === 'draft' && <button className="link" onClick={() => run('evm_quiz_set', { p_id: q.id, p_status: 'open' }, '출제했습니다.')}>출제</button>}
                 {q.status === 'open' && <button className="link" onClick={() => run('evm_quiz_set', { p_id: q.id, p_status: 'closed' }, '마감했습니다.')}>마감</button>}
                 {q.status === 'closed' && <button className="link" onClick={() => run('evm_quiz_set', { p_id: q.id, p_status: 'open' }, '다시 출제했습니다.')}>다시 출제</button>}
@@ -580,7 +556,7 @@ function QuizAdmin({ code, data, teams, run }) {
                   className="link"
                   onClick={() => confirm('이 문제를 삭제합니까? 이 문제로 받은 점수도 함께 지워집니다.') && run('evm_quiz_delete', { p_id: q.id }, '삭제했습니다.')}
                 >
-                  {q.status === 'pending' ? '반려(삭제)' : '삭제'}
+                  삭제
                 </button>
               </p>
             </li>
@@ -589,18 +565,6 @@ function QuizAdmin({ code, data, teams, run }) {
       </ul>
     </>
   )
-}
-
-function HqQuizPhoto({ code, quizId }) {
-  const [src, setSrc] = useState(null)
-  useEffect(() => {
-    let alive = true
-    rpc('evm_quiz_photo', { p_code: code, p_id: quizId }).then((photo) => alive && setSrc(photo)).catch(() => {})
-    return () => {
-      alive = false
-    }
-  }, [code, quizId])
-  return src ? <img className="quiz-photo" src={src} alt="팀이 보낸 사진" /> : null
 }
 
 const emptyDraft = { body: '', answer: '', hint: '', choices: ['', '', '', ''], correct: 0 }

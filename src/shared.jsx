@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { VERSES, TEAMS } from './data.js'
+import { TEAMS } from './data.js'
 import { rpc, fetchPhoto, BadCodeError, report } from './store.js'
-import { versePieces, ranking, agoText, distanceM, teacherNames, locationGroups } from './logic.js'
+import { ranking, agoText, distanceM, teacherNames, locationGroups } from './logic.js'
 
 const POLL_MS = 15000
 const TEAM_COUNT_KEY = 'evm:v2:teamCount'
@@ -57,6 +57,11 @@ export function usePhoto(code, teamId, missionId, at, local) {
       setSrc(local)
       return
     }
+    // 아직 사진이 없는 칸(기록 시각이 없음)은 서버에 묻지 않는다.
+    if (!at) {
+      setSrc(null)
+      return
+    }
     let alive = true
     setSrc(null)
     fetchPhoto(code, teamId, missionId, at)
@@ -73,31 +78,6 @@ export function Photo({ code, sub, alt, className }) {
   const src = usePhoto(code, sub.team_id, sub.mission_id, sub.at)
   if (!src) return <div className={`photo-wait ${className || ''}`}>사진을 불러오는 중입니다</div>
   return <img className={className} src={src} alt={alt} />
-}
-
-export function VerseView({ counts, myTeamId, teams }) {
-  const words = versePieces(counts, teams)
-  const openCount = words.filter((w) => w.open).length
-  return (
-    <>
-      {VERSES.map((verse, part) => (
-        <div key={verse.ref} className="verse-block">
-          <div className="verse">
-            {words.filter((w) => w.part === part).map((w, i) => (
-              <span key={i} className={`piece ${w.teamId === myTeamId ? 'mine' : ''} ${w.open ? 'open' : ''}`}>
-                {w.open ? w.text : '？'}
-              </span>
-            ))}
-          </div>
-          <p className="verse-ref">{verse.ref}</p>
-        </div>
-      ))}
-      <p className="verse-count">
-        전체 조각 <b>{openCount}</b>/{words.length}
-        {openCount === words.length && ' · 말씀이 완성되었습니다 🎉'}
-      </p>
-    </>
-  )
 }
 
 export const teachersOf = (data, teamId) => data.teams?.find((t) => t.team_id === teamId)?.teachers || ''

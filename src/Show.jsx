@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { TEAMS, MISSIONS, VERSES } from './data.js'
-import { doneByTeam, versePieces, missionInfo } from './logic.js'
-import { useRemote, Photo, teamsOf } from './shared.jsx'
+import { TEAMS } from './data.js'
+import { missionInfo } from './logic.js'
+import { useRemote, Photo } from './shared.jsx'
 
 const SLIDE_MS = 5000
 
-// 슬라이드쇼. 올라온 사진을 시간 순서로 넘기고 마지막에 말씀을 보여 준다.
+// 슬라이드쇼. 올라온 사진을 시간 순서로 넘긴다.
 export default function Show({ session, onLogout }) {
   const { data } = useRemote(session.code, onLogout)
   const [index, setIndex] = useState(0)
@@ -13,8 +13,7 @@ export default function Show({ session, onLogout }) {
 
   const slides = useMemo(() => {
     if (!data) return []
-    const photos = [...data.submissions].reverse().map((sub) => ({ type: 'photo', sub }))
-    return photos.length ? [...photos, { type: 'verse' }] : []
+    return [...data.submissions].reverse().map((sub) => ({ type: 'photo', sub }))
   }, [data])
 
   useEffect(() => {
@@ -29,7 +28,7 @@ export default function Show({ session, onLogout }) {
   const slide = slides[index % slides.length]
   return (
     <main className="show" onClick={() => setPaused(!paused)}>
-      {slide.type === 'photo' ? <PhotoSlide code={session.code} sub={slide.sub} orders={data.orders} /> : <VerseSlide data={data} />}
+      <PhotoSlide code={session.code} sub={slide.sub} orders={data.orders} />
       <p className="show-bar">
         {(index % slides.length) + 1} / {slides.length}
         {paused ? ' · 멈춤(화면을 누르면 다시 재생)' : ''}
@@ -49,21 +48,5 @@ function PhotoSlide({ code, sub, orders }) {
         <b style={{ background: team?.color }}>{team?.name}</b> {mission.icon} {mission.title}
       </p>
     </>
-  )
-}
-
-function VerseSlide({ data }) {
-  const map = doneByTeam(data.submissions)
-  const counts = Object.fromEntries(TEAMS.map((t) => [t.id, MISSIONS.filter((m) => map[t.id][m.id]).length]))
-  const words = versePieces(counts, teamsOf(data))
-  return (
-    <div className="show-verse">
-      {VERSES.map((verse, part) => (
-        <div key={verse.ref}>
-          <p>{words.filter((w) => w.part === part).map((w) => (w.open ? w.text : '○○')).join(' ')}</p>
-          <small>{verse.ref}</small>
-        </div>
-      ))}
-    </div>
   )
 }

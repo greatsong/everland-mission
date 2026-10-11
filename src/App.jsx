@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { TEAMS, MISSIONS, SCORE } from './data.js'
 import { rpc, BadCodeError, loadSession, saveSession, loadState, saveState, compressPhoto, report } from './store.js'
 import { boardFor, teamScore, doneByTeam, missionInfo, rushRank, completedLines, teacherNames, locationGroups } from './logic.js'
-import { useRemote, usePhoto, Photo, VerseView, Ranking, teamsOf, useLocationShare, LocationList, everlandMapUrl, TeamAvatar, teachersOf, teacherMap, withHere, HQ_TEAM, SplitNote } from './shared.jsx'
+import { useRemote, usePhoto, Photo, Ranking, teamsOf, useLocationShare, LocationList, everlandMapUrl, TeamAvatar, teachersOf, teacherMap, withHere, HQ_TEAM, SplitNote } from './shared.jsx'
 import { lazy, Suspense } from 'react'
 import Games from './Games.jsx'
 
@@ -13,7 +13,6 @@ import Show from './Show.jsx'
 const TABS = [
   { id: 'bingo', label: '빙고', icon: '🎯' },
   { id: 'games', label: '퀴즈 대결', icon: '🎲' },
-  { id: 'verse', label: '말씀', icon: '📖' },
   { id: 'all', label: '모두', icon: '🏆' },
 ]
 
@@ -89,7 +88,6 @@ function Login({ onLogin }) {
   return (
     <main className="select">
       <EventTitle />
-      <p className="sub">선생님께 받은 입장 코드를 입력합니다.</p>
       <form className="login" onSubmit={submit}>
         <input
           value={code}
@@ -230,13 +228,6 @@ function TeamHome({ session, onLeave, onLogout }) {
   const { count, lines, score } = total
   const pending = Object.values(state.done).filter((r) => !r.synced).length + state.removed.length
 
-  const counts = useMemo(() => {
-    const map = doneByTeam(data?.submissions || [])
-    const result = Object.fromEntries(TEAMS.map((t) => [t.id, MISSIONS.filter((m) => map[t.id][m.id]).length]))
-    result[teamId] = count
-    return result
-  }, [data, teamId, count])
-
   function capture(missionId, photo) {
     setNotice('')
     locate.ping()
@@ -321,14 +312,6 @@ function TeamHome({ session, onLeave, onLogout }) {
           <Bingo code={code} teamId={teamId} board={board} done={done} data={data} refresh={() => { locate.ping(); refresh() }} onCapture={capture} onRemove={remove} setNotice={setNotice} />
         )}
         {tab === 'games' && <Games code={code} teamId={teamId} data={data} refresh={() => { locate.ping(); refresh() }} />}
-        {tab === 'verse' && (
-          <>
-            <p className="guide">
-              미션을 완료하면 우리 팀의 말씀 조각이 열립니다. 테두리가 있는 칸이 우리 팀 조각입니다. 모든 팀이 조각을 모으면 말씀이 완성됩니다.
-            </p>
-            <VerseView counts={counts} myTeamId={teamId} teams={teamsOf(data)} />
-          </>
-        )}
         {tab === 'all' && <Everyone code={code} data={data} teamId={teamId} refresh={refresh} locate={locate} />}
       </main>
 

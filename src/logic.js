@@ -1,4 +1,4 @@
-import { MISSIONS, VERSES, TEAMS, SCORE } from './data.js'
+import { MISSIONS, TEAMS, SCORE } from './data.js'
 
 const SIZE = 4
 
@@ -28,22 +28,6 @@ export function scoreOf(board, done) {
   const count = board.filter((m) => done[m.id]).length
   const lines = countLines(board, done)
   return { count, lines, score: count * SCORE.perMission + lines * SCORE.perLine }
-}
-
-// 말씀을 어절로 나누어 팀에 차례로 배분한다. 팀이 미션을 완료한 비율만큼 그 팀의 조각이 열린다.
-// counts: { [teamId]: 완료한 미션 수 }
-export function versePieces(counts, teams = TEAMS) {
-  const words = VERSES.flatMap((verse, part) => verse.text.split(' ').map((text) => ({ text, part }))).map((w, i) => ({
-    ...w,
-    teamId: teams[i % teams.length].id,
-    open: false,
-  }))
-  for (const team of teams) {
-    const mine = words.filter((w) => w.teamId === team.id)
-    const openCount = Math.floor(((counts[team.id] || 0) / MISSIONS.length) * mine.length)
-    mine.slice(0, openCount).forEach((w) => (w.open = true))
-  }
-  return words
 }
 
 // 서버 제출 목록에서 팀별 완료 표시를 만든다. { [teamId]: { [missionId]: true } }
