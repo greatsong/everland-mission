@@ -112,7 +112,7 @@ function TeamSelect({ session, onSelect, onLogout }) {
   return (
     <main className="select">
       <EventTitle />
-      <p className="sub">우리 팀을 선택합니다. 선생님 휴대폰 한 대로 진행합니다.</p>
+      <p className="sub">우리 팀을 선택합니다. 팀이 A조, B조로 나뉘면 선생님마다 각자 휴대폰으로 입장합니다.</p>
       <div className="team-grid">
         {teamsOf(data).map((t) => (
           <button key={t.id} className="team-btn" style={{ background: t.color }} onClick={() => onSelect(t.id)}>
