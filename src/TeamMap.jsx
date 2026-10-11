@@ -19,8 +19,9 @@ const pinIcon = (html) => L.divIcon({ className: '', html: `<div class="pin-wrap
 
 // 여러 팀의 마지막 위치를 한 화면에 표시한다. 지도 자료는 오픈스트리트맵이다.
 // 같은 팀의 휴대폰이 서로 떨어져 있으면 1팀 A조, 1팀 B조처럼 따로 표시하고, 함께 있으면 하나로 표시한다.
-// tracks: 이동 경로 점 목록(시간 순서), until: 이 시각(ms)까지의 경로와 위치만 표시. 둘 다 없으면 마지막 위치만 표시한다.
-export default function TeamMap({ data, here, myTeamId, tracks, until }) {
+// tracks: 이동 경로 점 목록(시간 순서), from: 이 시각(ms)부터의 경로만 그린다, until: 이 시각(ms)의 위치와 그때까지의 경로를 표시한다.
+// tracks가 없으면 마지막 위치만 표시한다.
+export default function TeamMap({ data, here, myTeamId, tracks, until, from }) {
   const boxRef = useRef(null)
   const mapRef = useRef(null)
   const layerRef = useRef(null)
@@ -72,11 +73,12 @@ export default function TeamMap({ data, here, myTeamId, tracks, until }) {
     const teams = [HQ_TEAM, ...teamsOf(data)]
     const teachers = teacherMap(data)
     const visible = (p) => !until || new Date(p.at).getTime() <= until
+    const inRange = (p) => visible(p) && (!from || new Date(p.at).getTime() >= from)
 
     // 이동 경로는 휴대폰마다 따로 그린다. 같은 팀의 두 번째 휴대폰부터는 점선이다.
     if (tracks) {
       for (const team of teams) {
-        const mine = tracks.filter((p) => p.team_id === team.id && visible(p))
+        const mine = tracks.filter((p) => p.team_id === team.id && inRange(p))
         const names = teachers[team.id] || []
         const rank = (device) => {
           const last = mine.filter((p) => (p.device || '') === device).pop()
@@ -123,11 +125,12 @@ export default function TeamMap({ data, here, myTeamId, tracks, until }) {
     // 이름표 아래에 적는 시간: 지금 보기에서는 "3분 전", 시각을 고른 경로 보기에서는 기록 시각
     const when = (g) => (until ? clock(g.loc.at) : agoText(g.loc.at, data.now))
     const state = ({ g }) => {
-      const minutes = minutesAgo(g.loc.at, data.now)
+      // 지난 시각을 볼 때는 그 시각을 기준으로 얼마나 오래된 위치인지 따진다.
+      const minutes = minutesAgo(g.loc.at, until ? new Date(until).toISOString() : data.now)
       return {
         // live: 2분 안에 갱신된 위치(파동), stale: 10분 넘게 갱신되지 않은 위치(흐림), burst: 방금 미션을 완료한 팀(반짝임)
         live: !until && minutes <= 2,
-        stale: !until && minutes > 10,
+        stale: minutes > 10,
         burst: !until && burstRef.current[g.team.id] > Date.now(),
       }
     }
@@ -209,7 +212,12 @@ export default function TeamMap({ data, here, myTeamId, tracks, until }) {
 
   return (
     <div className="team-map">
-      <div ref={boxRef} className="team-map-box" />
+      <div className="team-map-wrap">
+        <div ref={boxRef} className="team-map-box" />
+        {until && (
+          <p className="map-replay" role="status">⏪ {agoText(new Date(until).toISOString(), data.now)} 상황 · {clock(until)}</p>
+        )}
+      </div>
       <button className="link" onClick={fitAll}>모든 팀이 보이게 맞추기</button>
       {note && <span className="net"> {note}</span>}
       {recent && <p className="map-recent" role="status">{recent}</p>}

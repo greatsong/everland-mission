@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { TEAMS, MISSIONS, QUIZ_KINDS, SEED_QUIZ, toChosung } from './data.js'
 import { rpc, suggestQuiz } from './store.js'
-import { doneByTeam, missionInfo, rushRank, locationGroups } from './logic.js'
+import { doneByTeam, missionInfo, rushRank, locationGroups, agoText } from './logic.js'
 import { useRemote, Photo, VerseView, Ranking, teamsOf, LocationList, useLocationShare, teacherMap, withHere, HQ_TEAM, SplitNote } from './shared.jsx'
 
 const TeamMap = lazy(() => import('./TeamMap.jsx'))
@@ -15,6 +15,7 @@ export default function Hq({ session, onLogout }) {
   const [tab, setTab] = useState('status')
   const [tracks, setTracks] = useState(null) // null이면 경로를 표시하지 않는다
   const [until, setUntil] = useState(null) // 선택한 시각(ms). null이면 현재
+  const [hours, setHours] = useState(1) // 시간대별 위치 보기 범위(최근 몇 시간)
   const locate = useLocationShare(code, 0) // 본부 위치(팀 번호 0)
 
   const doneMap = useMemo(() => doneByTeam(data?.submissions || []), [data])
@@ -75,6 +76,9 @@ export default function Hq({ session, onLogout }) {
   const openOrders = data?.orders.filter((o) => o.open).length || 0
   const pendingActs = data?.quizzes.filter((q) => q.status === 'pending').length || 0
   const openQuizzes = data?.quizzes.filter((q) => q.status === 'open').length || 0
+  // 시간대별 위치 보기의 시작 시각(ms)과 그 안에 쌓인 기록 수
+  const from = data ? new Date(data.now).getTime() - hours * 3600000 : 0
+  const trackCount = tracks ? tracks.filter((p) => new Date(p.at).getTime() >= from).length : 0
   const located = new Set(data?.locations.filter((l) => l.team_id !== 0).map((l) => l.team_id)).size
 
   const TABS = [
@@ -121,10 +125,11 @@ export default function Hq({ session, onLogout }) {
               <h2 className="section">📍 팀 위치</h2>
               {!tracks && <SplitNote groups={locationGroups(withHere(data.locations, 0, locate.here, data.now), [HQ_TEAM, ...teams], teacherMap(data))} splits={data.splits} now={data.now} />}
               <Suspense fallback={<p className="guide">지도를 불러오는 중입니다.</p>}>
-                <TeamMap data={data} here={locate.here} myTeamId={0} tracks={tracks} until={until} />
+                <TeamMap data={data} here={locate.here} myTeamId={0} tracks={tracks} until={until} from={tracks ? from : null} />
               </Suspense>
-              <TrackControl tracks={tracks} until={until} setUntil={setUntil} onToggle={(on) => { setTracks(on ? [] : null); setUntil(null) }} />
-              <LocationList data={data} />
+              <TrackControl on={tracks !== null} hours={hours} setHours={setHours} until={until} setUntil={setUntil} now={data.now} count={trackCount} onToggle={(on) => { setTracks(on ? [] : null); setUntil(null) }} />
+              {/* 지난 시각을 보는 동안에는 지금 위치 목록을 숨겨 지도와 섞이지 않게 한다. */}
+              {until ? <p className="guide">지금 위치 목록은 막대를 오른쪽 끝(지금)으로 옮기면 다시 표시됩니다.</p> : <LocationList data={data} />}
             </section>
             <section>
               <h2 className="section">🏆 팀 순위</h2>
@@ -243,7 +248,7 @@ export default function Hq({ session, onLogout }) {
           </section>
           <section>
             <h2 className="section">기록 지우기</h2>
-            <p className="guide">사진, 점수, 지령, 위치, 팀이 낸 몸으로 말해요 문제를 모두 지웁니다. 본부가 출제한 퀴즈 문제와 설정은 남습니다. 시험을 마친 뒤나 행사가 끝난 뒤에 사용합니다.</p>
+            <p className="guide">사진, 점수, 지령, 위치, 팀 인증 사진, 팀이 낸 몸으로 말해요 문제를 모두 지웁니다. 본부가 출제한 퀴즈 문제, 설정, 담당 선생님 이름은 남습니다. 시험을 마친 뒤나 행사가 끝난 뒤에 사용합니다.</p>
             <button className="danger" onClick={wipe}>모든 사진과 기록 지우기</button>
           </section>
         </>
@@ -330,32 +335,42 @@ function CheckLog({ code, data, run }) {
 
 const clock = (ms) => new Date(ms).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })
 
-// 이동 경로 표시와 시각 선택. 막대를 왼쪽으로 옮기면 그 시각까지의 경로와 그때의 위치를 보여 준다.
-function TrackControl({ tracks, until, setUntil, onToggle }) {
-  const on = tracks !== null
-  const times = (tracks || []).map((p) => new Date(p.at).getTime())
-  const min = times.length ? Math.min(...times) : 0
-  const max = times.length ? Math.max(...times) : 0
+// 시간대별 위치 보기. 최근 몇 시간을 고르고 막대를 왼쪽으로 옮기면, 그 시각의 위치와 그때까지의 경로를 보여 준다.
+const TRACK_HOURS = [1, 2, 3, 6]
+
+function TrackControl({ on, hours, setHours, until, setUntil, onToggle, now, count }) {
+  const max = new Date(now).getTime()
+  const min = max - hours * 3600000
   return (
     <div className="track-control">
       <label>
-        <input type="checkbox" checked={on} onChange={(e) => onToggle(e.target.checked)} /> 이동 경로 보기
+        <input type="checkbox" checked={on} onChange={(e) => onToggle(e.target.checked)} /> 시간대별 위치 보기
       </label>
-      {on && !times.length && <span className="net">아직 쌓인 위치 기록이 없습니다.</span>}
-      {on && times.length > 0 && (
+      {on && (
         <>
+          <span className="track-range">
+            최근
+            {TRACK_HOURS.map((h) => (
+              <button key={h} className={hours === h ? 'on' : ''} onClick={() => { setHours(h); setUntil(null) }}>{h}시간</button>
+            ))}
+          </span>
           <input
             type="range"
             min={min}
             max={max}
-            step={30000}
-            value={until ?? max}
-            onChange={(e) => setUntil(Number(e.target.value) >= max ? null : Number(e.target.value))}
+            step={60000}
+            value={Math.max(min, until ?? max)}
+            onChange={(e) => setUntil(Number(e.target.value) >= max - 60000 ? null : Number(e.target.value))}
             aria-label="시각 선택"
           />
           <span className="track-time">
-            {clock(min)} ~ <b>{until ? clock(until) : '지금'}</b>
+            {until ? (
+              <><b>{agoText(new Date(until).toISOString(), now)} 상황</b> · {clock(until)}</>
+            ) : (
+              <><b>지금</b> · {clock(min)}부터의 경로</>
+            )}
           </span>
+          {count === 0 && <span className="net">최근 {hours}시간 동안 쌓인 위치 기록이 없습니다.</span>}
         </>
       )}
     </div>

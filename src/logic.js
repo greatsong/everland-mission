@@ -108,7 +108,7 @@ export function agoText(iso, nowIso) {
   const m = minutesAgo(iso, nowIso)
   if (m < 1) return '방금'
   if (m < 60) return `${m}분 전`
-  return `${Math.floor(m / 60)}시간 ${m % 60}분 전`
+  return m % 60 ? `${Math.floor(m / 60)}시간 ${m % 60}분 전` : `${m / 60}시간 전`
 }
 
 // 두 좌표 사이 거리(미터)

@@ -392,3 +392,10 @@ h1, h2, p, figure { margin: 0; }
 .holder-pick button.on { background: var(--team); border-color: var(--team); color: #fff; font-weight: 700; }
 /* 이름이 긴 이름표도 파동 크기는 짧은 이름표와 같게 한다. */
 .map-pin.live::before, .map-pin.live::after { width: 56px; }
+
+/* 시간대별 위치 보기: 최근 몇 시간 고르기와 지난 시각 표시 */
+.track-range { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; color: var(--muted); }
+.track-range button { border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; background: var(--card); font-size: 13px; }
+.track-range button.on { background: var(--team); border-color: var(--team); color: #fff; font-weight: 700; }
+.team-map-wrap { position: relative; }
+.map-replay { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 900; margin: 0; padding: 6px 14px; border-radius: 999px; background: rgba(31, 42, 36, 0.9); color: #fff; font-weight: 800; font-size: 15px; white-space: nowrap; pointer-events: none; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3); }
