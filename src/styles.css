@@ -399,3 +399,9 @@ h1, h2, p, figure { margin: 0; }
 .track-range button.on { background: var(--team); border-color: var(--team); color: #fff; font-weight: 700; }
 .team-map-wrap { position: relative; }
 .map-replay { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 900; margin: 0; padding: 6px 14px; border-radius: 999px; background: rgba(31, 42, 36, 0.9); color: #fff; font-weight: 800; font-size: 15px; white-space: nowrap; pointer-events: none; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3); }
+
+/* 위치 버튼과 위치 공유 켜기 안내 */
+.status { flex-wrap: wrap; }
+.checkin.warn { border-color: #f08c00; background: #fff4e6; color: #c92a2a; font-weight: 700; }
+.locate-prompt { margin-bottom: 12px; border-color: #ffd43b; background: #fff9db; }
+.locate-prompt-title { margin: 0; font-weight: 800; font-size: 16px; }

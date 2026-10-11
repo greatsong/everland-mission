@@ -259,11 +259,34 @@ function TeamHome({ session, onLeave, onLogout }) {
     if (!confirm('팀 전원이 함께 있습니까?')) return
     try {
       await rpc('evm_checkin', { p_code: code, p_team: teamId })
+      locate.ping()
       refresh()
     } catch {
       setNotice('인원 확인을 보내지 못했습니다. 통신 상태를 확인한 뒤 다시 누릅니다.')
     }
   }
+
+  // 위치 버튼: 마지막으로 보낸 시각을 보여 주고, 누르면 바로 보낸다. 꺼져 있으면 빙고 탭 맨 위의 켜기 안내로 간다.
+  const teachers = data ? teacherNames(teachersOf(data, teamId)) : []
+  const pressed = useRef(false) // 위치 버튼을 눌러 보낸 경우 잠깐 "보냈습니다"를 보여 준다
+  const [flash, setFlash] = useState(false)
+  useEffect(() => {
+    if (!locate.lastSent || !pressed.current) return
+    pressed.current = false
+    setFlash(true)
+    const timer = setTimeout(() => setFlash(false), 2000)
+    return () => clearTimeout(timer)
+  }, [locate.lastSent])
+  function locateNow() {
+    if (!locate.on) {
+      setTab('bingo')
+      window.scrollTo(0, 0)
+      return
+    }
+    pressed.current = true
+    locate.ping()
+  }
+  const locateLabel = !locate.on ? '위치 꺼짐' : locate.sending ? '보내는 중' : flash ? '보냈습니다' : locate.error ? '위치 실패' : locate.lastSent ? hhmm(locate.lastSent) : '위치'
 
   const myCheckin = data?.checkins.find((c) => c.team_id === teamId)
   // 아직 하지 않은 진행 중 지령 수
@@ -289,9 +312,15 @@ function TeamHome({ session, onLeave, onLogout }) {
         <button className="checkin" onClick={() => setInbox(true)}>
           🔔 알림{todo > 0 && <b className="badge">{todo}</b>}
         </button>
-        <span className={online ? 'net' : 'net off'}>
-          {!online ? '연결 끊김 · 기록은 기기에 저장됩니다' : pending ? `올리는 중 ${pending}건` : '저장 완료'}
-        </span>
+        <button className={`checkin${!locate.on || (locate.error && !locate.sending) ? ' warn' : ''}`} onClick={locateNow} aria-label="지금 위치 보내기">
+          📍 {locateLabel}
+        </button>
+        {/* 평소에는 숨기고, 올리는 중이거나 연결이 끊겼을 때만 알린다. */}
+        {(!online || pending > 0) && (
+          <span className={online ? 'net' : 'net off'}>
+            {!online ? '연결 끊김 · 기록은 기기에 저장됩니다' : `올리는 중 ${pending}건`}
+          </span>
+        )}
       </div>
 
       {data?.notice?.body && <p className="hq-notice">📢 {data.notice.body}</p>}
@@ -302,6 +331,7 @@ function TeamHome({ session, onLeave, onLogout }) {
       )}
 
       <main className="body">
+        {tab === 'bingo' && <LocatePrompt locate={locate} teachers={teachers} />}
         {tab === 'bingo' && (
           <Bingo code={code} teamId={teamId} board={board} done={done} data={data} refresh={() => { locate.ping(); refresh() }} onCapture={capture} onRemove={remove} setNotice={setNotice} />
         )}
@@ -688,9 +718,57 @@ function SheetPhoto({ code, teamId, missionId, rec }) {
 
 const FEED_STEP = 6
 
+const hhmm = (ms) => new Date(ms).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })
+
+// 위치 공유 켜기·끄기. 팀이 나뉘었을 때 지도에 선생님 이름이 나오도록, 켜기 전에 이 휴대폰을 가진 선생님을 고른다.
+function LocateSwitch({ locate, teachers }) {
+  const [pickNote, setPickNote] = useState('')
+  return (
+    <>
+      {teachers.length > 0 && (
+        <div className="holder-pick" role="group" aria-label="이 휴대폰을 가진 선생님">
+          이 휴대폰을 가진 선생님
+          {teachers.map((name) => (
+            <button key={name} className={locate.holder === name ? 'on' : ''} onClick={() => { locate.setHolder(name); setPickNote('') }}>
+              {name}
+            </button>
+          ))}
+        </div>
+      )}
+      {pickNote && <p className="error">{pickNote}</p>}
+      <button
+        className={locate.on ? 'ghost' : 'primary'}
+        onClick={() => {
+          if (!locate.on && teachers.length && !teachers.includes(locate.holder)) {
+            setPickNote('이 휴대폰을 가진 선생님을 먼저 고릅니다.')
+            return
+          }
+          locate.toggle(!locate.on)
+        }}
+      >
+        {locate.on ? '위치 공유 끄기' : '위치 공유 켜기'}
+      </button>
+      {locate.on && teachers.length > 0 && !teachers.includes(locate.holder) && (
+        <p className="error">이 휴대폰을 가진 선생님을 고르면 팀이 나뉘었을 때 지도에 이름이 표시됩니다.</p>
+      )}
+    </>
+  )
+}
+
+// 위치 공유가 꺼져 있으면 빙고 탭 맨 위에 알리고 그 자리에서 켤 수 있게 한다.
+function LocatePrompt({ locate, teachers }) {
+  if (locate.on) return null
+  return (
+    <div className="locate locate-prompt">
+      <p className="locate-prompt-title">📍 위치 공유가 꺼져 있습니다</p>
+      <p className="guide">본부가 우리 팀 위치를 알 수 있도록 켭니다. 켜 두면 앱을 열어 둔 동안 1분마다 위치를 보냅니다.</p>
+      <LocateSwitch locate={locate} teachers={teachers} />
+    </div>
+  )
+}
+
 function Everyone({ code, data, teamId, refresh, locate }) {
   const [limit, setLimit] = useState(FEED_STEP)
-  const [pickNote, setPickNote] = useState('')
   if (!data) return <p className="guide">다른 팀의 기록을 불러오는 중입니다. 통신이 연결되어야 표시됩니다.</p>
 
   async function cheer(sub) {
@@ -711,36 +789,11 @@ function Everyone({ code, data, teamId, refresh, locate }) {
       <h2 className="section">📍 우리 위치</h2>
       <div className="locate">
         <p className="guide">
-          위치 공유를 켜면 미션을 완료할 때마다, 그리고 이 화면이 열려 있는 동안 3분마다 본부에 우리 팀 위치를 보냅니다.
+          위치 공유를 켜면 앱을 열 때와 미션을 완료할 때, 그리고 화면이 켜져 있는 동안 1분마다 본부에 우리 팀 위치를 보냅니다. 휴대폰 화면이 꺼져 있으면 보내지 못합니다.
           팀이 A조, B조로 나뉘면 선생님마다 각자 휴대폰에서 위치 공유를 켭니다. 휴대폰끼리 20m 넘게 떨어지면 지도에 조별로 표시됩니다.
         </p>
-        {teachers.length > 0 && (
-          <div className="holder-pick" role="group" aria-label="이 휴대폰을 가진 선생님">
-            이 휴대폰을 가진 선생님
-            {teachers.map((name) => (
-              <button key={name} className={locate.holder === name ? 'on' : ''} onClick={() => { locate.setHolder(name); setPickNote('') }}>
-                {name}
-              </button>
-            ))}
-          </div>
-        )}
-        {pickNote && <p className="error">{pickNote}</p>}
-        <button
-          className={locate.on ? 'ghost' : 'primary'}
-          onClick={() => {
-            // 팀이 나뉘었을 때 지도에 선생님 이름이 나오도록, 켜기 전에 이 휴대폰을 가진 선생님을 고른다.
-            if (!locate.on && teachers.length && !teachers.includes(locate.holder)) {
-              setPickNote('이 휴대폰을 가진 선생님을 먼저 고릅니다.')
-              return
-            }
-            locate.toggle(!locate.on)
-          }}
-        >
-          {locate.on ? '위치 공유 끄기' : '위치 공유 켜기'}
-        </button>
-        {locate.on && teachers.length > 0 && !teachers.includes(locate.holder) && (
-          <p className="error">이 휴대폰을 가진 선생님을 고르면 팀이 나뉘었을 때 지도에 이름이 표시됩니다.</p>
-        )}
+        <LocateSwitch locate={locate} teachers={teachers} />
+        {locate.on && locate.lastSent && <p className="guide">마지막으로 보낸 시각 {hhmm(locate.lastSent)}</p>}
         {locate.error && <p className="error">{locate.error}</p>}
         {locate.on && locate.here && (
           <a className="primary map-link" href={everlandMapUrl(locate.here.lat, locate.here.lng)} target="_blank" rel="noreferrer">

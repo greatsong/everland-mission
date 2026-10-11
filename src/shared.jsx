@@ -170,7 +170,7 @@ export function Ranking({ code, data, myTeamId, showCheckin }) {
 // 에버랜드 공식 지도를 해당 좌표에 맞춰 연다.
 export const everlandMapUrl = (lat, lng) => `https://www.everland.com/everland/map?lat=${lat}&lng=${lng}`
 
-const LOCATE_MS = 180000
+const LOCATE_MS = 60000
 const LOCATE_KEY = 'evm:v2:locate'
 const DEVICE_KEY = 'evm:v2:device'
 const holderKey = (teamId) => `evm:v2:holder:${teamId}`
@@ -191,8 +191,9 @@ export function deviceId() {
   }
 }
 
-// 위치 공유. 선생님이 켠 뒤에만 동작하고, 앱 화면이 열려 있는 동안 3분마다 본부로 보낸다.
-// 전송 시각을 시계의 3분 단위에 맞추어, 같은 팀의 휴대폰들이 거의 같은 때 위치를 기록하게 한다.
+// 위치 공유. 선생님이 켠 뒤에만 동작한다. 앱을 열 때, 다른 앱에서 돌아올 때, 통신이 다시 연결될 때 바로 보내고,
+// 화면이 열려 있는 동안 1분마다 본부로 보낸다. 화면이 꺼져 있으면 브라우저가 위치를 주지 않는다.
+// 전송 시각을 시계의 1분 단위에 맞추어, 같은 팀의 휴대폰들이 거의 같은 때 위치를 기록하게 한다.
 // holder: 이 휴대폰을 가진 선생님. 팀이 A조, B조로 나뉘면 지도에 이 이름이 표시된다.
 export function useLocationShare(code, teamId) {
   const [on, setOn] = useState(() => {
@@ -211,6 +212,8 @@ export function useLocationShare(code, teamId) {
   })
   const [here, setHere] = useState(null) // { lat, lng, acc }
   const [error, setError] = useState('')
+  const [lastSent, setLastSent] = useState(null) // 마지막으로 본부에 보낸 시각(ms)
+  const [sending, setSending] = useState(false)
   const sendRef = useRef(null)
 
   const toggle = useCallback(
@@ -254,27 +257,36 @@ export function useLocationShare(code, teamId) {
     let alive = true
     const send = () => {
       if (document.visibilityState !== 'visible') return
+      setSending(true)
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           if (!alive) return
           const next = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: Math.round(pos.coords.accuracy) }
           setHere(next)
-          setError('')
           rpc('evm_locate_phone', {
             p_code: code, p_team: teamId, p_device: deviceId(), p_holder: holder || null,
             p_lat: next.lat, p_lng: next.lng, p_acc: next.acc,
-          }).catch(() => {})
+          })
+            .then(() => {
+              if (!alive) return
+              setLastSent(Date.now())
+              setError('')
+            })
+            .catch(() => alive && setError('위치를 보내지 못했습니다. 통신이 연결되면 다시 보냅니다.'))
+            .finally(() => alive && setSending(false))
         },
         (err) => {
           report('geo', `위치 실패 code=${err.code} ${err.message}`)
-          if (alive) setError(err.code === 1 ? '위치 권한이 꺼져 있습니다. 브라우저 설정에서 위치를 허용합니다.' : '위치를 찾지 못했습니다.')
+          if (!alive) return
+          setSending(false)
+          setError(err.code === 1 ? '위치 권한이 꺼져 있습니다. 브라우저 설정에서 위치를 허용합니다.' : '위치를 찾지 못했습니다.')
         },
         { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 },
       )
     }
     sendRef.current = send
     send()
-    // 3분 단위가 바뀔 때마다 보낸다(5초마다 확인).
+    // 1분 단위가 바뀔 때마다 보낸다(5초마다 확인).
     let slot = Math.floor(Date.now() / LOCATE_MS)
     const timer = setInterval(() => {
       const now = Math.floor(Date.now() / LOCATE_MS)
@@ -284,18 +296,20 @@ export function useLocationShare(code, teamId) {
       }
     }, 5000)
     document.addEventListener('visibilitychange', send)
+    window.addEventListener('online', send)
     return () => {
       alive = false
       sendRef.current = null
       clearInterval(timer)
       document.removeEventListener('visibilitychange', send)
+      window.removeEventListener('online', send)
     }
   }, [on, code, teamId, holder])
 
-  // 미션을 완료할 때마다 불러 위치를 바로 갱신한다(공유가 켜져 있을 때만).
+  // 미션 완료, 인원 확인, 위치 버튼을 누를 때 불러 위치를 바로 보낸다(공유가 켜져 있을 때만).
   const ping = useCallback(() => sendRef.current?.(), [])
 
-  return { on, toggle, here, error, ping, holder, setHolder }
+  return { on, toggle, here, error, ping, holder, setHolder, lastSent, sending }
 }
 
 // 서버의 위치 목록에 이 휴대폰이 방금 기록한 위치를 반영한다. 아직 서버에 없으면 더한다.
