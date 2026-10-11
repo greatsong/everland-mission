@@ -17,7 +17,7 @@ h1, h2, p, figure { margin: 0; }
 .select { max-width: 480px; margin: 0 auto; padding: 48px 20px; text-align: center; }
 .select-emoji { font-size: 56px; }
 .select h1 { font-size: 28px; margin-top: 8px; }
-.sub { color: var(--muted); margin-top: 8px; line-height: 1.5; }
+.sub { color: var(--muted); margin-top: 8px; line-height: 1.5; word-break: keep-all; }
 .team-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 28px; }
 .team-btn { color: #fff; font-size: 22px; font-weight: 700; padding: 26px 0; border-radius: 18px; box-shadow: 0 3px 0 rgba(0, 0, 0, 0.15); }
 .team-btn:active { transform: translateY(2px); box-shadow: none; }
