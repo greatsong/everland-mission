@@ -283,7 +283,21 @@ export function useLocationShare(code, teamId) {
   // 미션 완료, 위치 버튼을 누를 때 불러 위치를 바로 보낸다(공유가 켜져 있을 때만).
   const ping = useCallback(() => sendRef.current?.(), [])
 
-  return { on, toggle, here, error, ping, holder, setHolder, lastSent, sending }
+  // 사진을 찍을 때 부른다. 위치 공유가 켜져 있으면 지금 위치(1분 안에 잰 값은 그대로 사용)를, 아니면 null을 돌려준다.
+  const positionNow = useCallback(
+    () =>
+      new Promise((resolve) => {
+        if (!on || !navigator.geolocation) return resolve(null)
+        navigator.geolocation.getCurrentPosition(
+          (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+          () => resolve(null),
+          { enableHighAccuracy: true, timeout: 6000, maximumAge: 60000 },
+        )
+      }),
+    [on],
+  )
+
+  return { on, toggle, here, error, ping, positionNow, holder, setHolder, lastSent, sending }
 }
 
 // 서버의 위치 목록에 이 휴대폰이 방금 기록한 위치를 반영한다. 아직 서버에 없으면 더한다.

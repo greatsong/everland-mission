@@ -119,7 +119,7 @@ export default function Hq({ session, onLogout }) {
               <h2 className="section">📍 팀 위치</h2>
               {!tracks && <SplitNote groups={locationGroups(withHere(data.locations, 0, locate.here, data.now), [HQ_TEAM, ...teams], teacherMap(data))} splits={data.splits} now={data.now} />}
               <Suspense fallback={<p className="guide">지도를 불러오는 중입니다.</p>}>
-                <TeamMap data={data} here={locate.here} myTeamId={0} tracks={tracks} until={until} from={tracks ? from : null} />
+                <TeamMap code={code} data={data} here={locate.here} myTeamId={0} tracks={tracks} until={until} from={tracks ? from : null} />
               </Suspense>
               <TrackControl on={tracks !== null} hours={hours} setHours={setHours} until={until} setUntil={setUntil} now={data.now} count={trackCount} onToggle={(on) => { setTracks(on ? [] : null); setUntil(null) }} />
               {/* 지난 시각을 보는 동안에는 지금 위치 목록을 숨겨 지도와 섞이지 않게 한다. */}

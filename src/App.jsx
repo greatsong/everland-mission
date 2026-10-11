@@ -168,7 +168,10 @@ function TeamHome({ session, onLeave, onLogout }) {
       for (const [id, rec] of Object.entries(stateRef.current.done)) {
         if (rec.synced) continue
         try {
-          await rpc('evm_submit', { p_code: code, p_team: teamId, p_mission: id, p_photo: rec.photo })
+          await rpc('evm_submit_at', {
+            p_code: code, p_team: teamId, p_mission: id, p_photo: rec.photo,
+            p_thumb: rec.thumb ?? null, p_lat: rec.lat ?? null, p_lng: rec.lng ?? null,
+          })
         } catch (err) {
           if (!String(err.message).includes('EVM_ORDER_CLOSED')) throw err
           // 마감된 지령에 올린 사진은 기기에서 지운다.
@@ -230,12 +233,15 @@ function TeamHome({ session, onLeave, onLogout }) {
   const { count, lines, score } = total
   const pending = Object.values(state.done).filter((r) => !r.synced).length + state.removed.length
 
-  function capture(missionId, photo) {
+  // 사진 저장. 카메라로 찍은 사진은 지금 위치를 함께 남긴다(위치 공유가 켜져 있을 때만).
+  // 앨범에서 고른 사진은 언제 어디서 찍었는지 알 수 없으므로 위치를 남기지 않는다.
+  async function capture(missionId, photo, { thumb = null, camera = false } = {}) {
     setNotice('')
+    const where = camera ? await locate.positionNow() : null
     locate.ping()
     setState((p) => ({
       ...p,
-      done: { ...p.done, [missionId]: { photo, at: Date.now(), synced: false } },
+      done: { ...p.done, [missionId]: { photo, thumb, lat: where?.lat ?? null, lng: where?.lng ?? null, at: Date.now(), synced: false } },
       removed: p.removed.filter((x) => x !== missionId),
     }))
   }
@@ -315,7 +321,7 @@ function TeamHome({ session, onLeave, onLogout }) {
         )}
         {tab === 'games' && <Games code={code} teamId={teamId} data={data} refresh={() => { locate.ping(); refresh() }} />}
         {tab === 'together' && <Together code={code} data={data} teamId={teamId} refresh={refresh} />}
-        {tab === 'map' && <MapTab data={data} teamId={teamId} locate={locate} />}
+        {tab === 'map' && <MapTab code={code} data={data} teamId={teamId} locate={locate} />}
       </main>
 
       <nav className="tabs">
@@ -371,12 +377,15 @@ function Bingo({ code, teamId, board, done, data, refresh, onCapture, onRemove, 
   const rec = selected && done[selected.id]
 
   async function onPhoto(e) {
+    const camera = e.target === fileRef.current // 카메라로 찍었는지(앨범에서 고른 것이 아닌지)
     const file = e.target.files?.[0]
     e.target.value = ''
     if (!file || !selected) return
     setBusy(true)
     try {
-      onCapture(selected.id, await compressPhoto(file))
+      // 지도에 띄울 작은 사진(긴 변 160px)을 함께 만든다.
+      const [photo, thumb] = await Promise.all([compressPhoto(file), compressPhoto(file, 160, 0.6)])
+      await onCapture(selected.id, photo, { thumb, camera })
     } catch (err) {
       setNotice(err.message)
     } finally {
@@ -785,7 +794,7 @@ function Together({ code, data, teamId, refresh }) {
 
 // 지도 탭: 우리 위치(위치 공유 켜기)와 지도. 다른 팀 위치는 본부가 허용했을 때만 보인다.
 // 위치 공유가 꺼져 있으면 켜기를 먼저, 켜져 있으면 지도를 먼저 보여 준다.
-function MapTab({ data, teamId, locate }) {
+function MapTab({ code, data, teamId, locate }) {
   if (!data) return <p className="guide">지도를 불러오는 중입니다. 통신이 연결되어야 표시됩니다.</p>
   const teachers = teacherNames(teachersOf(data, teamId))
   const share = data.share_locations
@@ -819,7 +828,7 @@ function MapTab({ data, teamId, locate }) {
         <SplitNote groups={locationGroups(withHere(data.locations, teamId, locate.here, data.now), [HQ_TEAM, ...teamsOf(data)], teacherMap(data))} splits={data.splits} now={data.now} />
       )}
       <Suspense fallback={<p className="guide">지도를 불러오는 중입니다.</p>}>
-        <TeamMap data={data} here={locate.here} myTeamId={teamId} />
+        <TeamMap code={code} data={data} here={locate.here} myTeamId={teamId} />
       </Suspense>
       {share ? <LocationList data={data} myTeamId={teamId} here={locate.here} /> : <p className="guide">다른 팀 위치는 본부가 허용하면 이 지도에 표시됩니다.</p>}
     </>

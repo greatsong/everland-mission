@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { teamsOf, teacherMap, withHere, HQ_TEAM } from './shared.jsx'
-import { minutesAgo, agoText, locationGroups, distanceM } from './logic.js'
+import { minutesAgo, agoText, locationGroups, distanceM, missionInfo } from './logic.js'
+import { rpc } from './store.js'
 
 const clock = (iso) => new Date(iso).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })
 
@@ -14,6 +15,10 @@ const NEAR_PX = 40
 
 const esc = (text) => String(text).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
 
+// 사진을 찍은 위치에 띄우는 작은 사진. 받은 것은 기억해 두고 다시 묻지 않는다(사진을 다시 올리면 시각이 바뀌어 새로 받는다).
+const thumbs = new Map()
+const thumbKey = (s) => `${s.team_id}:${s.mission_id}:${s.at}`
+
 // 이름표. 가운데가 위치에 오도록 감싸서 놓는다(이름 길이와 관계없이).
 const pinIcon = (html) => L.divIcon({ className: '', html: `<div class="pin-wrap">${html}</div>`, iconSize: [0, 0], iconAnchor: [0, 0] })
 
@@ -21,7 +26,8 @@ const pinIcon = (html) => L.divIcon({ className: '', html: `<div class="pin-wrap
 // 같은 팀의 휴대폰이 서로 떨어져 있으면 1팀 A조, 1팀 B조처럼 따로 표시하고, 함께 있으면 하나로 표시한다.
 // tracks: 이동 경로 점 목록(시간 순서), from: 이 시각(ms)부터의 경로만 그린다, until: 이 시각(ms)의 위치와 그때까지의 경로를 표시한다.
 // tracks가 없으면 마지막 위치만 표시한다.
-export default function TeamMap({ data, here, myTeamId, tracks, until, from }) {
+// code: 작은 사진을 받을 때 사용한다. 사진 보기를 켜면 위치가 남은 사진을 찍은 자리에 표시한다.
+export default function TeamMap({ code, data, here, myTeamId, tracks, until, from }) {
   const boxRef = useRef(null)
   const mapRef = useRef(null)
   const layerRef = useRef(null)
@@ -30,6 +36,8 @@ export default function TeamMap({ data, here, myTeamId, tracks, until, from }) {
   const burstRef = useRef({}) // { [teamId]: 반짝임을 보여 줄 마감 시각(ms) }
   const [recent, setRecent] = useState('')
   const [zoomTick, setZoomTick] = useState(0) // 확대·축소하면 겹침이 달라지므로 다시 그린다
+  const [showPhotos, setShowPhotos] = useState(false)
+  const [thumbTick, setThumbTick] = useState(0) // 작은 사진을 받으면 다시 그린다
 
   useEffect(() => {
     const map = L.map(boxRef.current, { zoomControl: true, attributionControl: true }).setView(EVERLAND, 16)
@@ -47,6 +55,30 @@ export default function TeamMap({ data, here, myTeamId, tracks, until, from }) {
       map.remove()
     }
   }, [])
+
+  // 위치가 남은 사진(시각을 골랐으면 그때까지 찍은 것만)
+  const photoSubs = useMemo(
+    () => (data.submissions || []).filter((sub) => sub.lat != null && sub.lng != null && (!until || new Date(sub.at).getTime() <= until)),
+    [data, until],
+  )
+
+  useEffect(() => {
+    if (!showPhotos || !code) return
+    const need = photoSubs.filter((sub) => !thumbs.has(thumbKey(sub)))
+    if (!need.length) return
+    let alive = true
+    for (const sub of need) thumbs.set(thumbKey(sub), null) // 받는 중
+    Promise.all(
+      need.map((sub) =>
+        rpc('evm_thumb', { p_code: code, p_team: sub.team_id, p_mission: sub.mission_id })
+          .then((thumb) => thumbs.set(thumbKey(sub), thumb))
+          .catch(() => thumbs.delete(thumbKey(sub))),
+      ),
+    ).then(() => alive && setThumbTick((n) => n + 1))
+    return () => {
+      alive = false
+    }
+  }, [showPhotos, code, photoSubs])
 
   useEffect(() => {
     const map = mapRef.current
@@ -98,6 +130,21 @@ export default function TeamMap({ data, here, myTeamId, tracks, until, from }) {
               .addTo(layer)
           }
         })
+      }
+    }
+
+    // 사진을 찍은 자리: 팀 이름표 아래에 작은 사진을 깐다. 시각을 골랐으면 그때까지 찍은 사진만 보인다.
+    if (showPhotos) {
+      for (const sub of photoSubs) {
+        const team = teams.find((t) => t.id === sub.team_id)
+        const mission = missionInfo(sub.mission_id, data.orders)
+        const thumb = thumbs.get(thumbKey(sub))
+        const html = `<div class="photo-pin" style="border-color:${team?.color || '#888'}">${thumb ? `<img src="${thumb}" alt="">` : '📷'}</div>`
+        // 작은 사진은 찍은 지점 바로 위에 꽂아, 같은 자리의 팀 이름표에 가리지 않게 한다.
+        const icon = L.divIcon({ className: '', html: `<div class="photo-wrap">${html}</div>`, iconSize: [0, 0], iconAnchor: [0, 0] })
+        L.marker([sub.lat, sub.lng], { icon, zIndexOffset: -500 })
+          .bindPopup(`${thumb ? `<img class="photo-pop" src="${thumb}" alt="">` : ''}<b>${esc(team?.name || '')}</b> ${mission.icon} ${esc(mission.title)}<br><small>${clock(sub.at)} 찍음</small>`)
+          .addTo(layer)
       }
     }
 
@@ -182,7 +229,7 @@ export default function TeamMap({ data, here, myTeamId, tracks, until, from }) {
       map.fitBounds(points, { padding: [40, 40], maxZoom: 17 })
       fittedRef.current = true
     }
-  }, [data, here, myTeamId, tracks, until, zoomTick])
+  }, [data, here, myTeamId, tracks, until, zoomTick, showPhotos, thumbTick, photoSubs])
 
   const [note, setNote] = useState('')
 
@@ -219,6 +266,12 @@ export default function TeamMap({ data, here, myTeamId, tracks, until, from }) {
         )}
       </div>
       <button className="link" onClick={fitAll}>모든 팀이 보이게 맞추기</button>
+      <button className="link map-photos" onClick={() => setShowPhotos(!showPhotos)}>
+        {showPhotos ? '📷 사진 숨기기' : `📷 사진 보기${photoSubs.length ? `(${photoSubs.length})` : ''}`}
+      </button>
+      {showPhotos && !photoSubs.length && (
+        <p className="net">지도에 표시할 사진이 아직 없습니다. 위치 공유를 켠 채 카메라로 찍은 사진만 찍은 자리에 표시됩니다.</p>
+      )}
       {note && <span className="net"> {note}</span>}
       {recent && <p className="map-recent" role="status">{recent}</p>}
     </div>

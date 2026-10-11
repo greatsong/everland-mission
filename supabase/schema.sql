@@ -108,6 +108,11 @@ alter table evm_teams enable row level security;
 alter table evm_scores enable row level security;
 -- 처음 올린 시각. 사진을 다시 올려도 바뀌지 않는다(타임어택 순위는 이 시각으로 정한다).
 alter table evm_submissions add column if not exists first_at timestamptz not null default now();
+-- 사진을 찍은 위치와 지도용 작은 사진(2026-10-12). 앱 안에서 카메라로 찍을 때 휴대폰 위치를 함께 남긴다.
+-- 앨범에서 고른 사진은 찍은 곳을 알 수 없어 위치를 남기지 않는다.
+alter table evm_submissions add column if not exists lat double precision;
+alter table evm_submissions add column if not exists lng double precision;
+alter table evm_submissions add column if not exists thumb text;
 alter table evm_config enable row level security;
 alter table evm_submissions enable row level security;
 alter table evm_notices enable row level security;
@@ -134,12 +139,17 @@ end $$;
 -- 전체 상태(사진 본문 제외). 화면이 주기적으로 부른다.
 create or replace function evm_state(p_code text) returns json
 language plpgsql stable security definer set search_path = public as $$
+declare
+  -- 위치(팀 위치, 사진을 찍은 위치)는 본부에만 보낸다. 본부가 허용하면(share_locations) 팀에게도 보낸다.
+  v_see_where boolean := evm_login(p_code) = 'admin'
+    or coalesce((select value from evm_config where key = 'share_locations'), 'off') = 'on';
 begin
   perform evm_require(p_code);
   return json_build_object(
     'submissions', coalesce((
       select json_agg(json_build_object(
-        'team_id', team_id, 'mission_id', mission_id, 'cheers', cheers, 'at', created_at, 'first_at', first_at
+        'team_id', team_id, 'mission_id', mission_id, 'cheers', cheers, 'at', created_at, 'first_at', first_at,
+        'lat', case when v_see_where then lat end, 'lng', case when v_see_where then lng end
       ) order by created_at desc) from evm_submissions), '[]'::json),
     'notice', (select json_build_object('id', id, 'body', body, 'at', created_at)
                from evm_notices order by id desc limit 1),
@@ -196,7 +206,31 @@ begin
   insert into evm_submissions (team_id, mission_id, photo)
   values (p_team, p_mission, p_photo)
   on conflict (team_id, mission_id)
-  do update set photo = excluded.photo, cheers = 0, created_at = now();
+  do update set photo = excluded.photo, cheers = 0, created_at = now(), thumb = null, lat = null, lng = null;
+end $$;
+
+-- 사진 올리기(찍은 위치와 지도용 작은 사진 포함). 위치가 없으면 null로 보낸다.
+create or replace function evm_submit_at(p_code text, p_team int, p_mission text, p_photo text, p_thumb text,
+  p_lat double precision, p_lng double precision) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform evm_submit(p_code, p_team, p_mission, p_photo);
+  if p_thumb is not null and (p_thumb not like 'data:image/jpeg;base64,%' or length(p_thumb) > 40000) then
+    raise exception 'EVM_BAD_PHOTO' using errcode = 'P0001';
+  end if;
+  if p_lat is not null and (p_lat not between -90 and 90 or p_lng is null or p_lng not between -180 and 180) then
+    raise exception 'EVM_BAD_LOCATION' using errcode = 'P0001';
+  end if;
+  update evm_submissions set thumb = p_thumb, lat = p_lat, lng = case when p_lat is null then null else p_lng end
+  where team_id = p_team and mission_id = p_mission;
+end $$;
+
+-- 지도에 띄울 작은 사진
+create or replace function evm_thumb(p_code text, p_team int, p_mission text) returns text
+language plpgsql stable security definer set search_path = public as $$
+begin
+  perform evm_require(p_code);
+  return (select thumb from evm_submissions where team_id = p_team and mission_id = p_mission);
 end $$;
 
 create or replace function evm_remove(p_code text, p_team int, p_mission text) returns void
@@ -644,6 +678,7 @@ revoke all on function evm_require(text, boolean) from public, anon, authenticat
 revoke all on function evm_team_apart(int), evm_split_update(int) from public, anon, authenticated;
 grant execute on function
   evm_login(text), evm_state(text), evm_submit(text, int, text, text), evm_remove(text, int, text),
+  evm_submit_at(text, int, text, text, text, double precision, double precision), evm_thumb(text, int, text),
   evm_photo(text, int, text), evm_cheer(text, int, text), evm_checkin(text, int),
   evm_notice(text, text), evm_wipe(text), evm_set_teams(text, int),
   evm_locate(text, int, double precision, double precision, real),
