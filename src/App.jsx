@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { TEAMS, MISSIONS, SCORE } from './data.js'
 import { rpc, BadCodeError, loadSession, saveSession, loadState, saveState, compressPhoto, report } from './store.js'
-import { boardFor, teamScore, doneByTeam, missionInfo, minutesAgo, agoText, rushRank, completedLines, teacherNames, locationGroups } from './logic.js'
+import { boardFor, teamScore, doneByTeam, missionInfo, rushRank, completedLines, teacherNames, locationGroups } from './logic.js'
 import { useRemote, usePhoto, Photo, VerseView, Ranking, teamsOf, useLocationShare, LocationList, everlandMapUrl, TeamAvatar, teachersOf, teacherMap, withHere, HQ_TEAM, SplitNote } from './shared.jsx'
 import { lazy, Suspense } from 'react'
 import Games from './Games.jsx'
@@ -255,17 +255,6 @@ function TeamHome({ session, onLeave, onLogout }) {
     })
   }
 
-  async function checkin() {
-    if (!confirm('팀 전원이 함께 있습니까?')) return
-    try {
-      await rpc('evm_checkin', { p_code: code, p_team: teamId })
-      locate.ping()
-      refresh()
-    } catch {
-      setNotice('인원 확인을 보내지 못했습니다. 통신 상태를 확인한 뒤 다시 누릅니다.')
-    }
-  }
-
   // 위치 버튼: 마지막으로 보낸 시각을 보여 주고, 누르면 바로 보낸다. 꺼져 있으면 빙고 탭 맨 위의 켜기 안내로 간다.
   const teachers = data ? teacherNames(teachersOf(data, teamId)) : []
   const pressed = useRef(false) // 위치 버튼을 눌러 보낸 경우 잠깐 "보냈습니다"를 보여 준다
@@ -288,7 +277,6 @@ function TeamHome({ session, onLeave, onLogout }) {
   }
   const locateLabel = !locate.on ? '위치 꺼짐' : locate.sending ? '보내는 중' : flash ? '보냈습니다' : locate.error ? '위치 실패' : locate.lastSent ? hhmm(locate.lastSent) : '위치'
 
-  const myCheckin = data?.checkins.find((c) => c.team_id === teamId)
   // 아직 하지 않은 진행 중 지령 수
   const todo = (data?.orders || []).filter((o) => o.open && !orderFinished(data, teamId, done, o)).length
 
@@ -306,9 +294,6 @@ function TeamHome({ session, onLeave, onLogout }) {
       </header>
 
       <div className="status">
-        <button className="checkin" onClick={checkin}>
-          ✅ 인원 확인{myCheckin && data ? ` · ${agoText(myCheckin.at, data.now)}` : ''}
-        </button>
         <button className="checkin" onClick={() => setInbox(true)}>
           🔔 알림{todo > 0 && <b className="badge">{todo}</b>}
         </button>

@@ -133,7 +133,7 @@ export default function Hq({ session, onLogout }) {
             </section>
             <section>
               <h2 className="section">🏆 팀 순위</h2>
-              <Ranking code={code} data={data} showCheckin />
+              <Ranking code={code} data={data} />
             </section>
           </div>
           <section>

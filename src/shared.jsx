@@ -139,9 +139,8 @@ export function TeamAvatar({ code, data, team }) {
   return <span className="avatar empty" style={{ background: team.color }}>{team.id}</span>
 }
 
-export function Ranking({ code, data, myTeamId, showCheckin }) {
+export function Ranking({ code, data, myTeamId }) {
   const rows = ranking(data, teamsOf(data))
-  const checkins = Object.fromEntries(data.checkins.map((c) => [c.team_id, c.at]))
   return (
     <ol className="ranking">
       {rows.map((r, i) => (
@@ -154,11 +153,6 @@ export function Ranking({ code, data, myTeamId, showCheckin }) {
             <br />
             미션 {r.count} · 빙고 {r.lines}줄
             <small>지령 {r.order}점 · 퀴즈 {r.quiz}점</small>
-            {showCheckin && (
-              <small>
-                {checkins[r.team.id] ? `인원 확인 ${agoText(checkins[r.team.id], data.now)}` : '인원 확인 기록 없음'}
-              </small>
-            )}
           </span>
           <b className="rank-score">{r.score}점</b>
         </li>
@@ -306,7 +300,7 @@ export function useLocationShare(code, teamId) {
     }
   }, [on, code, teamId, holder])
 
-  // 미션 완료, 인원 확인, 위치 버튼을 누를 때 불러 위치를 바로 보낸다(공유가 켜져 있을 때만).
+  // 미션 완료, 위치 버튼을 누를 때 불러 위치를 바로 보낸다(공유가 켜져 있을 때만).
   const ping = useCallback(() => sendRef.current?.(), [])
 
   return { on, toggle, here, error, ping, holder, setHolder, lastSent, sending }
