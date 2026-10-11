@@ -102,7 +102,7 @@ export function VerseView({ counts, myTeamId, teams }) {
 
 export const teachersOf = (data, teamId) => data.teams?.find((t) => t.team_id === teamId)?.teachers || ''
 
-// 조별 담당 선생님 이름 목록 { [teamId]: [이름] }
+// 팀별 담당 선생님 이름 목록 { [teamId]: [이름] }
 export const teacherMap = (data) => Object.fromEntries((data.teams || []).map((t) => [t.team_id, teacherNames(t.teachers)]))
 
 // 지도와 위치 목록에서 본부는 팀 번호 0으로 표시한다.
@@ -175,7 +175,7 @@ const LOCATE_KEY = 'evm:v2:locate'
 const DEVICE_KEY = 'evm:v2:device'
 const holderKey = (teamId) => `evm:v2:holder:${teamId}`
 
-// 휴대폰 번호. 처음 한 번 만들어 기기에 저장한다. 한 조가 휴대폰 여러 대로 위치를 보내도 서로 덮어쓰지 않는다.
+// 휴대폰 번호. 처음 한 번 만들어 기기에 저장한다. 한 팀이 휴대폰 여러 대로 위치를 보내도 서로 덮어쓰지 않는다.
 let memoryDevice = null
 export function deviceId() {
   try {
@@ -192,8 +192,8 @@ export function deviceId() {
 }
 
 // 위치 공유. 선생님이 켠 뒤에만 동작하고, 앱 화면이 열려 있는 동안 3분마다 본부로 보낸다.
-// 전송 시각을 시계의 3분 단위에 맞추어, 같은 조의 휴대폰들이 거의 같은 때 위치를 기록하게 한다.
-// holder: 이 휴대폰을 가진 선생님. 조가 나뉘면 지도에 이 이름이 표시된다.
+// 전송 시각을 시계의 3분 단위에 맞추어, 같은 팀의 휴대폰들이 거의 같은 때 위치를 기록하게 한다.
+// holder: 이 휴대폰을 가진 선생님. 팀이 A조, B조로 나뉘면 지도에 이 이름이 표시된다.
 export function useLocationShare(code, teamId) {
   const [on, setOn] = useState(() => {
     try {
@@ -309,9 +309,9 @@ export function withHere(locations, teamId, here, now) {
 
 const clockOf = (iso) => new Date(iso).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })
 
-// 조가 나뉘어 있으면 알린다. 예: "5조가 두 무리로 나뉘어 있습니다(5-A 한지희 · 5-B 고효정, 약 180m)"
-export function SplitNote({ groups }) {
-  const COUNT = ['', '', '두', '세', '네', '다섯']
+// 팀이 A조, B조로 나뉘어 있으면 알린다. 예: "1팀 12분 전부터 조별 활동 중" 아래에 "A조 안은미 · B조 이민철 · 약 360m"
+// 나뉜 시각(splits)은 서버가 위치를 받을 때마다 판단해 기록한다. 아직 기록이 없으면 시간 없이 알린다.
+export function SplitNote({ groups, splits = [], now }) {
   const teams = [...new Set(groups.filter((g) => g.split).map((g) => g.team))]
   if (!teams.length) return null
   return (
@@ -319,10 +319,12 @@ export function SplitNote({ groups }) {
       {teams.map((team) => {
         const parts = groups.filter((g) => g.team === team)
         const far = Math.max(...parts.flatMap((a) => parts.map((b) => distanceM(a.loc, b.loc))))
-        const who = parts.map((g) => `${g.name}${g.holders.length ? ` ${g.holders.join('·')}` : ''}`).join(' · ')
+        const since = splits.find((s) => s.team_id === team.id)?.since
+        const who = parts.map((g) => `${g.letter}조${g.holders.length ? ` ${g.holders.join('·')}` : ''}`).join(' · ')
         return (
           <li key={team.id}>
-            <b style={{ color: team.color }}>{team.name}</b>가 {COUNT[parts.length] || parts.length} 무리로 나뉘어 있습니다({who}, 약 {far}m)
+            <span><b style={{ color: team.color }}>{team.name}</b> {since ? `${agoText(since, now)}부터 ` : ''}조별 활동 중</span>
+            <small>{who} · 약 {far}m</small>
           </li>
         )
       })}
@@ -330,7 +332,7 @@ export function SplitNote({ groups }) {
   )
 }
 
-// 위치 목록. 조가 나뉘면 무리마다 한 줄로 보여 준다. 이름을 누르면 에버랜드 공식 지도가 그 위치에서 열린다.
+// 위치 목록. 팀이 나뉘면 조마다 한 줄로 보여 준다. 이름을 누르면 에버랜드 공식 지도가 그 위치에서 열린다.
 export function LocationList({ data, myTeamId, here }) {
   const teams = [HQ_TEAM, ...teamsOf(data)]
   const groups = locationGroups(data.locations, teams, teacherMap(data))

@@ -119,7 +119,7 @@ export default function Hq({ session, onLogout }) {
           <div className="hq-grid">
             <section>
               <h2 className="section">📍 팀 위치</h2>
-              {!tracks && <SplitNote groups={locationGroups(withHere(data.locations, 0, locate.here, data.now), [HQ_TEAM, ...teams], teacherMap(data))} />}
+              {!tracks && <SplitNote groups={locationGroups(withHere(data.locations, 0, locate.here, data.now), [HQ_TEAM, ...teams], teacherMap(data))} splits={data.splits} now={data.now} />}
               <Suspense fallback={<p className="guide">지도를 불러오는 중입니다.</p>}>
                 <TeamMap data={data} here={locate.here} myTeamId={0} tracks={tracks} until={until} />
               </Suspense>
@@ -216,7 +216,7 @@ export default function Hq({ session, onLogout }) {
                   className={data.team_count === n ? 'on' : ''}
                   onClick={() => run('evm_set_teams', { p_count: n }, `참가 팀을 ${n}개로 정했습니다.`)}
                 >
-                  {n}개
+                  {n}팀
                 </button>
               ))}
               <small>말씀 조각 배분이 달라지므로 행사 시작 전에 정합니다.</small>
@@ -227,7 +227,7 @@ export default function Hq({ session, onLogout }) {
             <p className="guide">
               선생님이 팀 화면의 "모두" 탭에서 위치 공유를 켜면 현황 탭의 지도에 표시됩니다. 미션을 완료할 때마다, 그리고 팀 화면이 열려 있는 동안 3분마다 갱신됩니다.
               10분 넘게 갱신되지 않은 팀은 흐리게 표시됩니다.
-              같은 조의 선생님 휴대폰이 20m 넘게 떨어지면 1-A, 1-B처럼 무리별로 나누어 표시하고, 이름 옆에 그 휴대폰을 가진 선생님을 적습니다.
+              같은 팀의 선생님 휴대폰이 20m 넘게 떨어지면 1팀 A조, 1팀 B조처럼 나누어 표시하고, 이름 옆에 그 휴대폰을 가진 선생님을 적습니다.
             </p>
             <p className="team-count">
               본부 위치 표시
@@ -298,7 +298,7 @@ function CheckLog({ code, data, run }) {
       </div>
       {Object.keys(devices).length > 0 && (
         <p className="guide">
-          팀별 기기: {Object.entries(devices).map(([id, set]) => `${id}조(${[...set].join(', ')})`).join(' / ')}
+          팀별 기기: {Object.entries(devices).map(([id, set]) => `${id}팀(${[...set].join(', ')})`).join(' / ')}
         </p>
       )}
       <div className="seg">
@@ -315,7 +315,7 @@ function CheckLog({ code, data, run }) {
             {shown.map((e) => (
               <tr key={e.id} className={isProblem(e) ? 'bad' : ''}>
                 <td>{new Date(e.at).toLocaleTimeString('ko-KR', { hour12: false })}</td>
-                <td>{e.team_id ? `${e.team_id}조` : '-'}</td>
+                <td>{e.team_id ? `${e.team_id}팀` : '-'}</td>
                 <td>{KIND_LABEL[e.kind] || e.kind}</td>
                 <th>{e.message}</th>
                 <td>{deviceOf(e.ua)}</td>

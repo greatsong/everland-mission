@@ -2,7 +2,7 @@ import { MISSIONS, VERSES, TEAMS, SCORE } from './data.js'
 
 const SIZE = 4
 
-// 빙고판. 모든 조가 같은 배치(data.js의 MISSIONS 순서)를 사용한다.
+// 빙고판. 모든 팀이 같은 배치(data.js의 MISSIONS 순서)를 사용한다.
 export function boardFor() {
   return MISSIONS
 }
@@ -127,9 +127,9 @@ export function teacherNames(text) {
     .filter(Boolean)
 }
 
-// 같은 조의 휴대폰이 이보다 멀리 떨어지면 지도에 무리를 나누어 표시한다(미터).
+// 같은 팀의 휴대폰이 이보다 멀리 떨어지면 지도에 A조, B조로 나누어 표시한다(미터).
 export const SPLIT_M = 20
-// 같은 조의 가장 최근 위치보다 이만큼 오래된 휴대폰 위치는 지도에서 뺀다(분).
+// 같은 팀의 가장 최근 위치보다 이만큼 오래된 휴대폰 위치는 지도에서 뺀다(분).
 // 위치 공유를 켠 채 앱을 닫은 휴대폰이 옛 위치에 계속 남지 않게 한다.
 const DROP_MIN = 60
 const LIVE_GAP_S = 240 // 두 휴대폰이 모두 위치를 보내는 중이라고 보는 기록 시각 차이(초)
@@ -143,8 +143,8 @@ export function apart(a, b) {
   return distanceM(a, b) > Math.max(SPLIT_M, (a.acc || 0) + (b.acc || 0)) + walk
 }
 
-// 조별 위치 무리. 같은 조의 휴대폰이 서로 떨어져 있으면 무리를 나누고 1-A, 1-B처럼 이름을 붙인다.
-// locations: [{ team_id, device, holder, lat, lng, acc, at }], teams: 조 목록(본부는 id 0)
+// 팀별 위치 무리. 같은 팀의 휴대폰이 서로 떨어져 있으면 무리를 나누고 1팀 A조, 1팀 B조처럼 이름을 붙인다(조별 활동).
+// locations: [{ team_id, device, holder, lat, lng, acc, at }], teams: 팀 목록(본부는 id 0)
 // teachers: { [teamId]: 담당 선생님 이름 목록 }. A·B 순서는 이 목록의 순서를 따른다.
 // 돌려주는 값: [{ key, team, name, split, holders, loc(무리의 가장 최근 위치), rows }]
 export function locationGroups(locations, teams, teachers = {}) {
@@ -181,7 +181,8 @@ export function locationGroups(locations, teams, teachers = {}) {
       groups.push({
         key: `${team.id}${letter}`,
         team,
-        name: split ? `${team.id}-${letter}` : team.name,
+        name: split ? `${team.name} ${letter}조` : team.name,
+        letter,
         split,
         holders: [...new Set(cluster.map((r) => r.holder).filter(Boolean))],
         loc,

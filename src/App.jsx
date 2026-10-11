@@ -712,7 +712,7 @@ function Everyone({ code, data, teamId, refresh, locate }) {
       <div className="locate">
         <p className="guide">
           위치 공유를 켜면 미션을 완료할 때마다, 그리고 이 화면이 열려 있는 동안 3분마다 본부에 우리 팀 위치를 보냅니다.
-          조가 나뉘면 선생님마다 각자 휴대폰에서 위치 공유를 켭니다. 휴대폰끼리 20m 넘게 떨어지면 지도에 무리별로 표시됩니다.
+          팀이 A조, B조로 나뉘면 선생님마다 각자 휴대폰에서 위치 공유를 켭니다. 휴대폰끼리 20m 넘게 떨어지면 지도에 조별로 표시됩니다.
         </p>
         {teachers.length > 0 && (
           <div className="holder-pick" role="group" aria-label="이 휴대폰을 가진 선생님">
@@ -728,7 +728,7 @@ function Everyone({ code, data, teamId, refresh, locate }) {
         <button
           className={locate.on ? 'ghost' : 'primary'}
           onClick={() => {
-            // 조가 나뉘었을 때 지도에 선생님 이름이 나오도록, 켜기 전에 이 휴대폰을 가진 선생님을 고른다.
+            // 팀이 나뉘었을 때 지도에 선생님 이름이 나오도록, 켜기 전에 이 휴대폰을 가진 선생님을 고른다.
             if (!locate.on && teachers.length && !teachers.includes(locate.holder)) {
               setPickNote('이 휴대폰을 가진 선생님을 먼저 고릅니다.')
               return
@@ -739,7 +739,7 @@ function Everyone({ code, data, teamId, refresh, locate }) {
           {locate.on ? '위치 공유 끄기' : '위치 공유 켜기'}
         </button>
         {locate.on && teachers.length > 0 && !teachers.includes(locate.holder) && (
-          <p className="error">이 휴대폰을 가진 선생님을 고르면 조가 나뉘었을 때 지도에 이름이 표시됩니다.</p>
+          <p className="error">이 휴대폰을 가진 선생님을 고르면 팀이 나뉘었을 때 지도에 이름이 표시됩니다.</p>
         )}
         {locate.error && <p className="error">{locate.error}</p>}
         {locate.on && locate.here && (
@@ -753,7 +753,7 @@ function Everyone({ code, data, teamId, refresh, locate }) {
       {data.share_locations && (
         <>
           <h2 className="section">📍 모든 팀 위치</h2>
-          <SplitNote groups={locationGroups(withHere(data.locations, teamId, locate.here, data.now), [HQ_TEAM, ...teamsOf(data)], teacherMap(data))} />
+          <SplitNote groups={locationGroups(withHere(data.locations, teamId, locate.here, data.now), [HQ_TEAM, ...teamsOf(data)], teacherMap(data))} splits={data.splits} now={data.now} />
           <Suspense fallback={<p className="guide">지도를 불러오는 중입니다.</p>}>
             <TeamMap data={data} here={locate.here} myTeamId={teamId} />
           </Suspense>

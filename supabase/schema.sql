@@ -89,6 +89,14 @@ begin
   end if;
 end $$;
 create index if not exists evm_location_log_team_device_at on evm_location_log (team_id, device, at);
+-- 조별 활동(팀이 A조·B조로 나뉨)을 시작한 시각(2026-10-12). 위치가 기록될 때마다 서버가 판단한다.
+-- together_at: 다시 모였다고 처음 판단한 시각. 잠깐 모여 보여도 시작 시각이 바뀌지 않도록 5분 동안은 행을 남긴다.
+create table if not exists evm_splits (
+  team_id int primary key check (team_id between 1 and 6),
+  since timestamptz not null default now(),
+  together_at timestamptz
+);
+alter table evm_splits enable row level security;
 -- 팀 소개: 담당 선생님 이름과 팀 인증 사진(작은 그림)
 create table if not exists evm_teams (
   team_id int primary key check (team_id between 1 and 6),
@@ -162,6 +170,9 @@ begin
       from evm_locations
       where evm_login(p_code) = 'admin'
          or coalesce((select value from evm_config where key = 'share_locations'), 'off') = 'on'), '[]'::json),
+    'splits', coalesce((
+      select json_agg(json_build_object('team_id', team_id, 'since', since)) from evm_splits
+      where together_at is null or together_at > now() - interval '5 minutes'), '[]'::json),
     'team_count', coalesce((select value::int from evm_config where key = 'team_count'), 6),
     'now', now()
   );
@@ -411,6 +422,79 @@ end $$;
 
 drop function if exists evm_score(text, int, text, int);
 
+-- 팀의 휴대폰들이 서로 떨어져 있는지(둘 이상의 조로 나뉘었는지). 화면의 locationGroups(logic.js)와 같은 규칙이다.
+-- 같은 팀의 가장 최근 위치보다 60분 넘게 오래된 휴대폰은 뺀다. 두 휴대폰 사이 거리가 20m(또는 두 오차의 합)보다 멀면
+-- 떨어졌다고 보고, 두 휴대폰이 모두 위치를 보내는 중(기록 시각 차이 4분 이내)이면 그 차이 동안 함께 걸었을 수 있는
+-- 거리(초속 1m)를 기준에 더한다. 첫 휴대폰에서 가까운 휴대폰을 따라가 모두 닿으면 한 무리다.
+create or replace function evm_team_apart(p_team int) returns boolean
+language plpgsql stable security definer set search_path = public as $$
+declare
+  r record;
+  v_lat double precision[] := '{}';
+  v_lng double precision[] := '{}';
+  v_acc double precision[] := '{}';
+  v_at timestamptz[] := '{}';
+  v_seen boolean[];
+  v_queue int[];
+  v_n int;
+  i int;
+  j int;
+  v_gap double precision;
+  v_walk double precision;
+  v_x double precision;
+  v_y double precision;
+begin
+  for r in
+    select lat, lng, acc, updated_at from evm_locations
+    where team_id = p_team
+      and updated_at >= (select max(updated_at) from evm_locations where team_id = p_team) - interval '60 minutes'
+  loop
+    v_lat := v_lat || r.lat;
+    v_lng := v_lng || r.lng;
+    v_acc := v_acc || coalesce(r.acc, 0)::double precision;
+    v_at := v_at || r.updated_at;
+  end loop;
+  v_n := coalesce(array_length(v_lat, 1), 0);
+  if v_n < 2 then
+    return false;
+  end if;
+  v_seen := array_fill(false, array[v_n]);
+  v_seen[1] := true;
+  v_queue := array[1];
+  while coalesce(array_length(v_queue, 1), 0) > 0 loop
+    i := v_queue[1];
+    v_queue := v_queue[2:];
+    for j in 1..v_n loop
+      continue when v_seen[j];
+      v_gap := abs(extract(epoch from v_at[i] - v_at[j]));
+      v_walk := case when v_gap <= 240 then greatest(0, v_gap - 20) else 0 end;
+      v_x := radians(v_lng[j] - v_lng[i]) * cos(radians((v_lat[i] + v_lat[j]) / 2));
+      v_y := radians(v_lat[j] - v_lat[i]);
+      if round(sqrt(v_x * v_x + v_y * v_y) * 6371000) <= greatest(20, v_acc[i] + v_acc[j]) + v_walk then
+        v_seen[j] := true;
+        v_queue := v_queue || j;
+      end if;
+    end loop;
+  end loop;
+  return not (true = all(v_seen));
+end $$;
+
+-- 조별 활동 기록을 갱신한다. 떨어져 있으면 시작 시각을 남기고(이미 있으면 그대로 둔다), 모여 있으면 5분 뒤에 지운다.
+create or replace function evm_split_update(p_team int) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if p_team = 0 then
+    return;
+  end if;
+  if evm_team_apart(p_team) then
+    insert into evm_splits (team_id) values (p_team)
+    on conflict (team_id) do update set together_at = null;
+  else
+    update evm_splits set together_at = coalesce(together_at, now()) where team_id = p_team;
+    delete from evm_splits where team_id = p_team and together_at < now() - interval '5 minutes';
+  end if;
+end $$;
+
 -- 위치 기록(휴대폰 단위). 이동 경로는 휴대폰마다 45초에 한 번까지만 쌓는다.
 create or replace function evm_locate_phone(p_code text, p_team int, p_device text, p_holder text,
   p_lat double precision, p_lng double precision, p_acc real) returns void
@@ -430,6 +514,7 @@ begin
                  where team_id = p_team and device = v_device and at > now() - interval '45 seconds') then
     insert into evm_location_log (team_id, device, holder, lat, lng) values (p_team, v_device, v_holder, p_lat, p_lng);
   end if;
+  perform evm_split_update(p_team);
 end $$;
 
 -- 예전 화면이 부르는 위치 기록. 휴대폰 번호 없이('') 기록한다.
@@ -445,6 +530,7 @@ language plpgsql security definer set search_path = public as $$
 begin
   perform evm_require(p_code, p_team = 0);
   delete from evm_locations where team_id = p_team and device = coalesce(p_device, '');
+  perform evm_split_update(p_team);
 end $$;
 
 -- 이동 경로(본부 전용). 시간 순서로 돌려준다.
@@ -549,11 +635,13 @@ begin
   delete from evm_locations where true;
   update evm_teams set photo = null, updated_at = now() where true;
   delete from evm_location_log where true;
+  delete from evm_splits where true;
   -- 팀이 낸 몸으로 말해요 문제는 지우고, 본부가 출제한 문제는 남긴다.
   delete from evm_quizzes where kind = 'act';
 end $$;
 
 revoke all on function evm_require(text, boolean) from public, anon, authenticated;
+revoke all on function evm_team_apart(int), evm_split_update(int) from public, anon, authenticated;
 grant execute on function
   evm_login(text), evm_state(text), evm_submit(text, int, text, text), evm_remove(text, int, text),
   evm_photo(text, int, text), evm_cheer(text, int, text), evm_checkin(text, int),
