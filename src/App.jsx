@@ -13,7 +13,8 @@ import Show from './Show.jsx'
 const TABS = [
   { id: 'bingo', label: '빙고', icon: '🎯' },
   { id: 'games', label: '퀴즈 대결', icon: '🎲' },
-  { id: 'all', label: '모두', icon: '🏆' },
+  { id: 'together', label: '함께', icon: '🤝' },
+  { id: 'map', label: '지도', icon: '🗺️' },
 ]
 
 function useHashRoute() {
@@ -115,6 +116,7 @@ function TeamSelect({ session, onSelect, onLogout }) {
         {teamsOf(data).map((t) => (
           <button key={t.id} className="team-btn" style={{ background: t.color }} onClick={() => onSelect(t.id)}>
             {t.name}
+            {data && teacherNames(teachersOf(data, t.id)).length > 0 && <small>{teacherNames(teachersOf(data, t.id)).join(' · ')}</small>}
           </button>
         ))}
       </div>
@@ -246,7 +248,7 @@ function TeamHome({ session, onLeave, onLogout }) {
     })
   }
 
-  // 위치 버튼: 마지막으로 보낸 시각을 보여 주고, 누르면 바로 보낸다. 꺼져 있으면 빙고 탭 맨 위의 켜기 안내로 간다.
+  // 위치 버튼: 마지막으로 보낸 시각을 보여 주고, 누르면 바로 보낸다. 꺼져 있으면 지도 탭의 위치 공유 켜기로 간다.
   const teachers = data ? teacherNames(teachersOf(data, teamId)) : []
   const pressed = useRef(false) // 위치 버튼을 눌러 보낸 경우 잠깐 "보냈습니다"를 보여 준다
   const [flash, setFlash] = useState(false)
@@ -259,7 +261,7 @@ function TeamHome({ session, onLeave, onLogout }) {
   }, [locate.lastSent])
   function locateNow() {
     if (!locate.on) {
-      setTab('bingo')
+      setTab('map')
       window.scrollTo(0, 0)
       return
     }
@@ -312,7 +314,8 @@ function TeamHome({ session, onLeave, onLogout }) {
           <Bingo code={code} teamId={teamId} board={board} done={done} data={data} refresh={() => { locate.ping(); refresh() }} onCapture={capture} onRemove={remove} setNotice={setNotice} />
         )}
         {tab === 'games' && <Games code={code} teamId={teamId} data={data} refresh={() => { locate.ping(); refresh() }} />}
-        {tab === 'all' && <Everyone code={code} data={data} teamId={teamId} refresh={refresh} locate={locate} />}
+        {tab === 'together' && <Together code={code} data={data} teamId={teamId} refresh={refresh} />}
+        {tab === 'map' && <MapTab data={data} teamId={teamId} locate={locate} />}
       </main>
 
       <nav className="tabs">
@@ -735,7 +738,8 @@ function LocatePrompt({ locate, teachers }) {
   )
 }
 
-function Everyone({ code, data, teamId, refresh, locate }) {
+// 함께 탭: 팀 순위와 모든 팀의 사진(응원하기). 친구초청잔치 주제 "함께"에서 이름을 땄다.
+function Together({ code, data, teamId, refresh }) {
   const [limit, setLimit] = useState(FEED_STEP)
   if (!data) return <p className="guide">다른 팀의 기록을 불러오는 중입니다. 통신이 연결되어야 표시됩니다.</p>
 
@@ -749,38 +753,10 @@ function Everyone({ code, data, teamId, refresh, locate }) {
   }
 
   const feed = data.submissions.slice(0, limit)
-  const teachers = teacherNames(teachersOf(data, teamId))
   return (
     <>
-      <h2 className="section">팀 순위</h2>
+      <h2 className="section">🏆 팀 순위</h2>
       <Ranking code={code} data={data} myTeamId={teamId} />
-      <h2 className="section">📍 우리 위치</h2>
-      <div className="locate">
-        <p className="guide">
-          위치 공유를 켜면 앱을 열 때와 미션을 완료할 때, 그리고 화면이 켜져 있는 동안 1분마다 본부에 우리 팀 위치를 보냅니다. 휴대폰 화면이 꺼져 있으면 보내지 못합니다.
-          팀이 A조, B조로 나뉘면 선생님마다 각자 휴대폰에서 위치 공유를 켭니다. 휴대폰끼리 20m 넘게 떨어지면 지도에 조별로 표시됩니다.
-        </p>
-        <LocateSwitch locate={locate} teachers={teachers} />
-        {locate.on && locate.lastSent && <p className="guide">마지막으로 보낸 시각 {hhmm(locate.lastSent)}</p>}
-        {locate.error && <p className="error">{locate.error}</p>}
-        {locate.on && locate.here && (
-          <a className="primary map-link" href={everlandMapUrl(locate.here.lat, locate.here.lng)} target="_blank" rel="noreferrer">
-            에버랜드 지도에서 우리 위치 보기
-          </a>
-        )}
-        {locate.on && !locate.here && !locate.error && <p className="guide">위치를 찾는 중입니다.</p>}
-        <a className="ghost map-link" href={EVERLAND_MAP} target="_blank" rel="noreferrer">🗺️ 에버랜드 공식 지도 열기</a>
-      </div>
-      {data.share_locations && (
-        <>
-          <h2 className="section">📍 모든 팀 위치</h2>
-          <SplitNote groups={locationGroups(withHere(data.locations, teamId, locate.here, data.now), [HQ_TEAM, ...teamsOf(data)], teacherMap(data))} splits={data.splits} now={data.now} />
-          <Suspense fallback={<p className="guide">지도를 불러오는 중입니다.</p>}>
-            <TeamMap data={data} here={locate.here} myTeamId={teamId} />
-          </Suspense>
-          <LocationList data={data} myTeamId={teamId} here={locate.here} />
-        </>
-      )}
       <h2 className="section">모든 팀의 사진</h2>
       {!feed.length && <p className="guide">아직 올라온 사진이 없습니다.</p>}
       <div className="photos">
@@ -805,4 +781,49 @@ function Everyone({ code, data, teamId, refresh, locate }) {
       )}
     </>
   )
+}
+
+// 지도 탭: 우리 위치(위치 공유 켜기)와 지도. 다른 팀 위치는 본부가 허용했을 때만 보인다.
+// 위치 공유가 꺼져 있으면 켜기를 먼저, 켜져 있으면 지도를 먼저 보여 준다.
+function MapTab({ data, teamId, locate }) {
+  if (!data) return <p className="guide">지도를 불러오는 중입니다. 통신이 연결되어야 표시됩니다.</p>
+  const teachers = teacherNames(teachersOf(data, teamId))
+  const share = data.share_locations
+
+  const mine = (
+    <>
+      <h2 className="section">📍 우리 위치</h2>
+      <div className="locate">
+        <p className="guide">
+          위치 공유를 켜면 앱을 열 때와 미션을 완료할 때, 그리고 화면이 켜져 있는 동안 1분마다 본부에 우리 팀 위치를 보냅니다. 휴대폰 화면이 꺼져 있으면 보내지 못합니다.
+          팀이 A조, B조로 나뉘면 선생님마다 각자 휴대폰에서 위치 공유를 켭니다. 휴대폰끼리 20m 넘게 떨어지면 지도에 조별로 표시됩니다.
+        </p>
+        <LocateSwitch locate={locate} teachers={teachers} />
+        {locate.on && locate.lastSent && <p className="guide">마지막으로 보낸 시각 {hhmm(locate.lastSent)}</p>}
+        {locate.error && <p className="error">{locate.error}</p>}
+        {locate.on && locate.here && (
+          <a className="primary map-link" href={everlandMapUrl(locate.here.lat, locate.here.lng)} target="_blank" rel="noreferrer">
+            에버랜드 지도에서 우리 위치 보기
+          </a>
+        )}
+        {locate.on && !locate.here && !locate.error && <p className="guide">위치를 찾는 중입니다.</p>}
+        <a className="ghost map-link" href={EVERLAND_MAP} target="_blank" rel="noreferrer">🗺️ 에버랜드 공식 지도 열기</a>
+      </div>
+    </>
+  )
+
+  const map = (
+    <>
+      <h2 className="section">🗺️ {share ? '모든 팀 위치' : '지도'}</h2>
+      {share && (
+        <SplitNote groups={locationGroups(withHere(data.locations, teamId, locate.here, data.now), [HQ_TEAM, ...teamsOf(data)], teacherMap(data))} splits={data.splits} now={data.now} />
+      )}
+      <Suspense fallback={<p className="guide">지도를 불러오는 중입니다.</p>}>
+        <TeamMap data={data} here={locate.here} myTeamId={teamId} />
+      </Suspense>
+      {share ? <LocationList data={data} myTeamId={teamId} here={locate.here} /> : <p className="guide">다른 팀 위치는 본부가 허용하면 이 지도에 표시됩니다.</p>}
+    </>
+  )
+
+  return locate.on ? <>{map}{mine}</> : <>{mine}{map}</>
 }

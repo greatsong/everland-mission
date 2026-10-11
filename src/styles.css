@@ -390,3 +390,6 @@ h1, h2, p, figure { margin: 0; }
 .checkin.warn { border-color: #f08c00; background: #fff4e6; color: #c92a2a; font-weight: 700; }
 .locate-prompt { margin-bottom: 12px; border-color: #ffd43b; background: #fff9db; }
 .locate-prompt-title { margin: 0; font-weight: 800; font-size: 16px; }
+
+/* 팀 선택 버튼의 담당 선생님 이름 */
+.team-btn small { display: block; margin-top: 6px; padding: 0 8px; font-size: 13.5px; font-weight: 600; opacity: 0.95; word-break: keep-all; line-height: 1.35; }
