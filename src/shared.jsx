@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { VERSES, TEAMS } from './data.js'
 import { rpc, fetchPhoto, BadCodeError, report } from './store.js'
-import { versePieces, ranking, minutesAgo, agoText } from './logic.js'
+import { versePieces, ranking, agoText, distanceM, teacherNames, locationGroups } from './logic.js'
 
 const POLL_MS = 15000
 const TEAM_COUNT_KEY = 'evm:v2:teamCount'
@@ -102,6 +102,12 @@ export function VerseView({ counts, myTeamId, teams }) {
 
 export const teachersOf = (data, teamId) => data.teams?.find((t) => t.team_id === teamId)?.teachers || ''
 
+// 조별 담당 선생님 이름 목록 { [teamId]: [이름] }
+export const teacherMap = (data) => Object.fromEntries((data.teams || []).map((t) => [t.team_id, teacherNames(t.teachers)]))
+
+// 지도와 위치 목록에서 본부는 팀 번호 0으로 표시한다.
+export const HQ_TEAM = { id: 0, name: '본부', color: '#1f2a24' }
+
 // 팀 인증 사진은 바뀔 때만 다시 받는다(받은 시각별로 기억).
 const avatarCache = new Map()
 
@@ -166,8 +172,28 @@ export const everlandMapUrl = (lat, lng) => `https://www.everland.com/everland/m
 
 const LOCATE_MS = 180000
 const LOCATE_KEY = 'evm:v2:locate'
+const DEVICE_KEY = 'evm:v2:device'
+const holderKey = (teamId) => `evm:v2:holder:${teamId}`
+
+// 휴대폰 번호. 처음 한 번 만들어 기기에 저장한다. 한 조가 휴대폰 여러 대로 위치를 보내도 서로 덮어쓰지 않는다.
+let memoryDevice = null
+export function deviceId() {
+  try {
+    let id = localStorage.getItem(DEVICE_KEY)
+    if (!id) {
+      id = Math.random().toString(36).slice(2, 10)
+      localStorage.setItem(DEVICE_KEY, id)
+    }
+    return id
+  } catch {
+    memoryDevice ??= Math.random().toString(36).slice(2, 10)
+    return memoryDevice
+  }
+}
 
 // 위치 공유. 선생님이 켠 뒤에만 동작하고, 앱 화면이 열려 있는 동안 3분마다 본부로 보낸다.
+// 전송 시각을 시계의 3분 단위에 맞추어, 같은 조의 휴대폰들이 거의 같은 때 위치를 기록하게 한다.
+// holder: 이 휴대폰을 가진 선생님. 조가 나뉘면 지도에 이 이름이 표시된다.
 export function useLocationShare(code, teamId) {
   const [on, setOn] = useState(() => {
     try {
@@ -176,19 +202,46 @@ export function useLocationShare(code, teamId) {
       return false
     }
   })
+  const [holder, setHolderState] = useState(() => {
+    try {
+      return localStorage.getItem(holderKey(teamId)) || ''
+    } catch {
+      return ''
+    }
+  })
   const [here, setHere] = useState(null) // { lat, lng, acc }
   const [error, setError] = useState('')
   const sendRef = useRef(null)
 
-  const toggle = useCallback((next) => {
-    try {
-      localStorage.setItem(LOCATE_KEY, next ? 'on' : 'off')
-    } catch {
-      /* 저장이 막혀도 이번 화면에서는 동작한다 */
-    }
-    setError('')
-    setOn(next)
-  }, [])
+  const toggle = useCallback(
+    (next) => {
+      try {
+        localStorage.setItem(LOCATE_KEY, next ? 'on' : 'off')
+      } catch {
+        /* 저장이 막혀도 이번 화면에서는 동작한다 */
+      }
+      setError('')
+      setOn(next)
+      if (!next) {
+        // 끄면 이 휴대폰의 마지막 위치를 지도에서 지운다.
+        setHere(null)
+        rpc('evm_locate_off', { p_code: code, p_team: teamId, p_device: deviceId() }).catch(() => {})
+      }
+    },
+    [code, teamId],
+  )
+
+  const setHolder = useCallback(
+    (name) => {
+      try {
+        localStorage.setItem(holderKey(teamId), name)
+      } catch {
+        /* 저장이 막혀도 이번 화면에서는 동작한다 */
+      }
+      setHolderState(name)
+    },
+    [teamId],
+  )
 
   useEffect(() => {
     if (!on) return
@@ -207,18 +260,29 @@ export function useLocationShare(code, teamId) {
           const next = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: Math.round(pos.coords.accuracy) }
           setHere(next)
           setError('')
-          rpc('evm_locate', { p_code: code, p_team: teamId, p_lat: next.lat, p_lng: next.lng, p_acc: next.acc }).catch(() => {})
+          rpc('evm_locate_phone', {
+            p_code: code, p_team: teamId, p_device: deviceId(), p_holder: holder || null,
+            p_lat: next.lat, p_lng: next.lng, p_acc: next.acc,
+          }).catch(() => {})
         },
         (err) => {
           report('geo', `위치 실패 code=${err.code} ${err.message}`)
           if (alive) setError(err.code === 1 ? '위치 권한이 꺼져 있습니다. 브라우저 설정에서 위치를 허용합니다.' : '위치를 찾지 못했습니다.')
         },
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 },
       )
     }
     sendRef.current = send
     send()
-    const timer = setInterval(send, LOCATE_MS)
+    // 3분 단위가 바뀔 때마다 보낸다(5초마다 확인).
+    let slot = Math.floor(Date.now() / LOCATE_MS)
+    const timer = setInterval(() => {
+      const now = Math.floor(Date.now() / LOCATE_MS)
+      if (now !== slot) {
+        slot = now
+        send()
+      }
+    }, 5000)
     document.addEventListener('visibilitychange', send)
     return () => {
       alive = false
@@ -226,47 +290,79 @@ export function useLocationShare(code, teamId) {
       clearInterval(timer)
       document.removeEventListener('visibilitychange', send)
     }
-  }, [on, code, teamId])
+  }, [on, code, teamId, holder])
 
   // 미션을 완료할 때마다 불러 위치를 바로 갱신한다(공유가 켜져 있을 때만).
   const ping = useCallback(() => sendRef.current?.(), [])
 
-  return { on, toggle, here, error, ping }
+  return { on, toggle, here, error, ping, holder, setHolder }
+}
+
+// 서버의 위치 목록에 이 휴대폰이 방금 기록한 위치를 반영한다. 아직 서버에 없으면 더한다.
+export function withHere(locations, teamId, here, now) {
+  if (!here || teamId == null) return locations
+  const device = deviceId()
+  const mine = locations.find((l) => l.team_id === teamId && l.device === device)
+  const rest = locations.filter((l) => l !== mine)
+  return [...rest, { team_id: teamId, device, holder: mine?.holder || null, ...here, at: now }]
 }
 
 const clockOf = (iso) => new Date(iso).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })
 
-// 두 좌표 사이 거리(미터)
-export function distanceM(a, b) {
-  const rad = Math.PI / 180
-  const x = (b.lng - a.lng) * rad * Math.cos(((a.lat + b.lat) / 2) * rad)
-  const y = (b.lat - a.lat) * rad
-  return Math.round(Math.sqrt(x * x + y * y) * 6371000)
+// 조가 나뉘어 있으면 알린다. 예: "5조가 두 무리로 나뉘어 있습니다(5-A 한지희 · 5-B 고효정, 약 180m)"
+export function SplitNote({ groups }) {
+  const COUNT = ['', '', '두', '세', '네', '다섯']
+  const teams = [...new Set(groups.filter((g) => g.split).map((g) => g.team))]
+  if (!teams.length) return null
+  return (
+    <ul className="split-note">
+      {teams.map((team) => {
+        const parts = groups.filter((g) => g.team === team)
+        const far = Math.max(...parts.flatMap((a) => parts.map((b) => distanceM(a.loc, b.loc))))
+        const who = parts.map((g) => `${g.name}${g.holders.length ? ` ${g.holders.join('·')}` : ''}`).join(' · ')
+        return (
+          <li key={team.id}>
+            <b style={{ color: team.color }}>{team.name}</b>가 {COUNT[parts.length] || parts.length} 무리로 나뉘어 있습니다({who}, 약 {far}m)
+          </li>
+        )
+      })}
+    </ul>
+  )
 }
 
-// 팀 위치 목록. 팀 이름을 누르면 에버랜드 공식 지도가 그 위치에서 열린다.
+// 위치 목록. 조가 나뉘면 무리마다 한 줄로 보여 준다. 이름을 누르면 에버랜드 공식 지도가 그 위치에서 열린다.
 export function LocationList({ data, myTeamId, here }) {
-  const teams = teamsOf(data)
-  const rows = [{ id: 0, name: '본부', color: '#1f2a24' }, ...teams].map((t) => ({ team: t, loc: data.locations.find((l) => l.team_id === t.id) }))
-  if (!rows.some((r) => r.loc)) return <p className="guide">아직 위치를 보낸 팀이 없습니다.</p>
+  const teams = [HQ_TEAM, ...teamsOf(data)]
+  const groups = locationGroups(data.locations, teams, teacherMap(data))
+  if (!groups.length) return <p className="guide">아직 위치를 보낸 팀이 없습니다.</p>
+  const device = deviceId()
   return (
     <ul className="loc-list">
-      {rows.map(({ team, loc }) => (
-        <li key={team.id}>
-          <span className="rank-team" style={{ background: team.color }}>{team.name}</span>
-          {loc ? (
-            <>
+      {teams.map((team) => {
+        const parts = groups.filter((g) => g.team === team)
+        if (!parts.length) {
+          return (
+            <li key={team.id}>
+              <span className="rank-team" style={{ background: team.color }}>{team.name}</span>
+              <span className="rank-detail">위치 기록 없음</span>
+            </li>
+          )
+        }
+        return parts.map((g) => {
+          const mine = g.team.id === myTeamId && g.rows.some((r) => r.device === device)
+          return (
+            <li key={g.key}>
+              <span className="rank-team" style={{ background: team.color }}>{g.name}</span>
               <span className="rank-detail">
-                <b>{clockOf(loc.at)}</b> 기록 · {agoText(loc.at, data.now)}{loc.acc ? ` · 오차 약 ${Math.round(loc.acc)}m` : ''}
-                {here && team.id !== myTeamId && <small>우리 팀에서 약 {distanceM(here, loc)}m</small>}
+                {g.split && g.holders.length > 0 && <small className="loc-holder">{g.holders.join('·')}</small>}
+                <b>{clockOf(g.loc.at)}</b> 기록 · {agoText(g.loc.at, data.now)}{g.loc.acc ? ` · 오차 약 ${Math.round(g.loc.acc)}m` : ''}
+                {here && !mine && <small>우리 위치에서 약 {distanceM(here, g.loc)}m</small>}
               </span>
-              <a href={everlandMapUrl(loc.lat, loc.lng)} target="_blank" rel="noreferrer">지도에서 보기</a>
-            </>
-          ) : (
-            <span className="rank-detail">위치 기록 없음</span>
-          )}
-        </li>
-      ))}
+              <a href={everlandMapUrl(g.loc.lat, g.loc.lng)} target="_blank" rel="noreferrer">지도에서 보기</a>
+            </li>
+          )
+        })
+      })}
     </ul>
   )
 }

@@ -73,6 +73,22 @@ alter table evm_location_log enable row level security;
 alter table evm_locations drop constraint if exists evm_locations_team_id_check;
 alter table evm_locations add constraint evm_locations_team_id_check check (team_id between 0 and 6);
 alter table evm_locations enable row level security;
+-- 휴대폰 단위 위치(2026-10-11). 한 조가 여러 무리로 나뉘면 선생님 휴대폰마다 따로 기록한다.
+-- device: 휴대폰 번호(기기에 저장한 임의 값, 예전 화면은 ''), holder: 그 휴대폰을 가진 선생님
+alter table evm_locations add column if not exists device text not null default '';
+alter table evm_locations add column if not exists holder text;
+alter table evm_location_log add column if not exists device text not null default '';
+alter table evm_location_log add column if not exists holder text;
+do $$
+begin
+  -- 기본 키가 팀 번호 하나이면 (팀, 휴대폰)으로 바꾼다.
+  if (select array_length(conkey, 1) from pg_constraint
+      where conrelid = 'evm_locations'::regclass and conname = 'evm_locations_pkey') = 1 then
+    alter table evm_locations drop constraint evm_locations_pkey;
+    alter table evm_locations add constraint evm_locations_pkey primary key (team_id, device);
+  end if;
+end $$;
+create index if not exists evm_location_log_team_device_at on evm_location_log (team_id, device, at);
 -- 팀 소개: 담당 선생님 이름과 팀 인증 사진(작은 그림)
 create table if not exists evm_teams (
   team_id int primary key check (team_id between 1 and 6),
@@ -141,7 +157,8 @@ begin
     -- 팀 위치는 본부에만 보낸다. 본부가 허용하면(share_locations) 팀에게도 보낸다.
     'share_locations', coalesce((select value from evm_config where key = 'share_locations'), 'off') = 'on',
     'locations', coalesce((
-      select json_agg(json_build_object('team_id', team_id, 'lat', lat, 'lng', lng, 'acc', acc, 'at', updated_at))
+      select json_agg(json_build_object('team_id', team_id, 'device', device, 'holder', holder,
+        'lat', lat, 'lng', lng, 'acc', acc, 'at', updated_at))
       from evm_locations
       where evm_login(p_code) = 'admin'
          or coalesce((select value from evm_config where key = 'share_locations'), 'off') = 'on'), '[]'::json),
@@ -394,18 +411,40 @@ end $$;
 
 drop function if exists evm_score(text, int, text, int);
 
-create or replace function evm_locate(p_code text, p_team int, p_lat double precision, p_lng double precision, p_acc real) returns void
+-- 위치 기록(휴대폰 단위). 이동 경로는 휴대폰마다 45초에 한 번까지만 쌓는다.
+create or replace function evm_locate_phone(p_code text, p_team int, p_device text, p_holder text,
+  p_lat double precision, p_lng double precision, p_acc real) returns void
 language plpgsql security definer set search_path = public as $$
+declare
+  v_device text := left(coalesce(p_device, ''), 40);
+  v_holder text := nullif(left(btrim(coalesce(p_holder, '')), 20), '');
 begin
   perform evm_require(p_code, p_team = 0);
   if p_lat not between -90 and 90 or p_lng not between -180 and 180 then
     raise exception 'EVM_BAD_LOCATION' using errcode = 'P0001';
   end if;
-  insert into evm_locations (team_id, lat, lng, acc) values (p_team, p_lat, p_lng, p_acc)
-  on conflict (team_id) do update set lat = excluded.lat, lng = excluded.lng, acc = excluded.acc, updated_at = now();
-  if not exists (select 1 from evm_location_log where team_id = p_team and at > now() - interval '45 seconds') then
-    insert into evm_location_log (team_id, lat, lng) values (p_team, p_lat, p_lng);
+  insert into evm_locations (team_id, device, holder, lat, lng, acc) values (p_team, v_device, v_holder, p_lat, p_lng, p_acc)
+  on conflict (team_id, device) do update
+    set holder = excluded.holder, lat = excluded.lat, lng = excluded.lng, acc = excluded.acc, updated_at = now();
+  if not exists (select 1 from evm_location_log
+                 where team_id = p_team and device = v_device and at > now() - interval '45 seconds') then
+    insert into evm_location_log (team_id, device, holder, lat, lng) values (p_team, v_device, v_holder, p_lat, p_lng);
   end if;
+end $$;
+
+-- 예전 화면이 부르는 위치 기록. 휴대폰 번호 없이('') 기록한다.
+create or replace function evm_locate(p_code text, p_team int, p_lat double precision, p_lng double precision, p_acc real) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform evm_locate_phone(p_code, p_team, '', null, p_lat, p_lng, p_acc);
+end $$;
+
+-- 위치 공유를 끈 휴대폰의 마지막 위치를 지운다. 이동 경로는 남긴다.
+create or replace function evm_locate_off(p_code text, p_team int, p_device text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform evm_require(p_code, p_team = 0);
+  delete from evm_locations where team_id = p_team and device = coalesce(p_device, '');
 end $$;
 
 -- 이동 경로(본부 전용). 시간 순서로 돌려준다.
@@ -414,7 +453,8 @@ language plpgsql stable security definer set search_path = public as $$
 begin
   perform evm_require(p_code, true);
   return coalesce((
-    select json_agg(json_build_object('team_id', team_id, 'lat', lat, 'lng', lng, 'at', at) order by at)
+    select json_agg(json_build_object('team_id', team_id, 'device', device, 'holder', holder,
+      'lat', lat, 'lng', lng, 'at', at) order by at)
     from evm_location_log), '[]'::json);
 end $$;
 
@@ -496,7 +536,7 @@ begin
   on conflict (key) do update set value = excluded.value;
 end $$;
 
--- 사진과 기록을 모두 지운다. 본부가 출제한 퀴즈 문제는 남는다.
+-- 사진과 기록을 모두 지운다. 본부가 출제한 퀴즈 문제와 팀 소개의 담당 선생님 이름은 남는다.
 create or replace function evm_wipe(p_code text) returns void
 language plpgsql security definer set search_path = public as $$
 begin
@@ -507,7 +547,7 @@ begin
   delete from evm_scores where true;
   delete from evm_orders where true;
   delete from evm_locations where true;
-  delete from evm_teams where true;
+  update evm_teams set photo = null, updated_at = now() where true;
   delete from evm_location_log where true;
   -- 팀이 낸 몸으로 말해요 문제는 지우고, 본부가 출제한 문제는 남긴다.
   delete from evm_quizzes where kind = 'act';
@@ -518,7 +558,9 @@ grant execute on function
   evm_login(text), evm_state(text), evm_submit(text, int, text, text), evm_remove(text, int, text),
   evm_photo(text, int, text), evm_cheer(text, int, text), evm_checkin(text, int),
   evm_notice(text, text), evm_wipe(text), evm_set_teams(text, int),
-  evm_locate(text, int, double precision, double precision, real), evm_share_locations(text, boolean), evm_tracks(text),
+  evm_locate(text, int, double precision, double precision, real),
+  evm_locate_phone(text, int, text, text, double precision, double precision, real), evm_locate_off(text, int, text),
+  evm_share_locations(text, boolean), evm_tracks(text),
   evm_team_set(text, int, text, text), evm_team_photo(text, int),
   evm_report(int, text, text, text), evm_events_list(text), evm_events_clear(text),
   evm_quiz_add(text, text, text, json, text, text, int, boolean), evm_quiz_seed(text, json), evm_quiz_set(text, bigint, text),

@@ -2,20 +2,9 @@ import { MISSIONS, VERSES, TEAMS, SCORE } from './data.js'
 
 const SIZE = 4
 
-// 팀 번호를 씨앗으로 사용해 팀마다 다른 배열을 만들되, 같은 팀은 항상 같은 배열을 받는다.
-function seededShuffle(items, seed) {
-  const arr = [...items]
-  let s = seed * 9301 + 49297
-  for (let i = arr.length - 1; i > 0; i--) {
-    s = (s * 9301 + 49297) % 233280
-    const j = Math.floor((s / 233280) * (i + 1))
-    ;[arr[i], arr[j]] = [arr[j], arr[i]]
-  }
-  return arr
-}
-
-export function boardFor(teamId) {
-  return seededShuffle(MISSIONS, teamId)
+// 빙고판. 모든 조가 같은 배치(data.js의 MISSIONS 순서)를 사용한다.
+export function boardFor() {
+  return MISSIONS
 }
 
 // 완성된 줄 목록. 줄마다 칸 번호(0~15) 네 개를 돌려준다.
@@ -87,7 +76,7 @@ export function rushRank(data, orderId, teamId) {
 
 // 팀 하나의 점수 내역. data는 서버 상태, done은 그 팀의 완료 표시({ [missionId]: 참 })이다.
 export function teamScore(teamId, data, done) {
-  const bingo = scoreOf(boardFor(teamId), done)
+  const bingo = scoreOf(boardFor(), done)
   let order = 0
   let quiz = 0
   for (const o of data?.orders || []) {
@@ -120,4 +109,85 @@ export function agoText(iso, nowIso) {
   if (m < 1) return '방금'
   if (m < 60) return `${m}분 전`
   return `${Math.floor(m / 60)}시간 ${m % 60}분 전`
+}
+
+// 두 좌표 사이 거리(미터)
+export function distanceM(a, b) {
+  const rad = Math.PI / 180
+  const x = (b.lng - a.lng) * rad * Math.cos(((a.lat + b.lat) / 2) * rad)
+  const y = (b.lat - a.lat) * rad
+  return Math.round(Math.sqrt(x * x + y * y) * 6371000)
+}
+
+// 담당 선생님 이름 목록. 팀 소개에 적은 글("김○○, 이○○ 선생님")을 이름별로 나눈다.
+export function teacherNames(text) {
+  return String(text || '')
+    .split(/[,，·・/、]/)
+    .map((s) => s.trim().replace(/\s*선생님$/, '').trim())
+    .filter(Boolean)
+}
+
+// 같은 조의 휴대폰이 이보다 멀리 떨어지면 지도에 무리를 나누어 표시한다(미터).
+export const SPLIT_M = 20
+// 같은 조의 가장 최근 위치보다 이만큼 오래된 휴대폰 위치는 지도에서 뺀다(분).
+// 위치 공유를 켠 채 앱을 닫은 휴대폰이 옛 위치에 계속 남지 않게 한다.
+const DROP_MIN = 60
+const LIVE_GAP_S = 240 // 두 휴대폰이 모두 위치를 보내는 중이라고 보는 기록 시각 차이(초)
+const SAME_TIME_S = 20 // 같은 때 기록했다고 보는 시각 차이(초). 전송 시각을 3분 단위로 맞추므로 대개 이 안에 든다
+
+// 두 휴대폰이 떨어져 있는지 판단한다. 기준은 20m이고, 휴대폰이 알려 준 오차의 합이 더 크면 그 값을 사용한다.
+// 두 휴대폰이 모두 위치를 보내는 중이면 기록 시각 차이 동안 함께 걸었을 수 있는 거리(초속 1m)를 기준에 더한다.
+export function apart(a, b) {
+  const gap = Math.abs(new Date(a.at) - new Date(b.at)) / 1000
+  const walk = gap <= LIVE_GAP_S ? Math.max(0, gap - SAME_TIME_S) : 0
+  return distanceM(a, b) > Math.max(SPLIT_M, (a.acc || 0) + (b.acc || 0)) + walk
+}
+
+// 조별 위치 무리. 같은 조의 휴대폰이 서로 떨어져 있으면 무리를 나누고 1-A, 1-B처럼 이름을 붙인다.
+// locations: [{ team_id, device, holder, lat, lng, acc, at }], teams: 조 목록(본부는 id 0)
+// teachers: { [teamId]: 담당 선생님 이름 목록 }. A·B 순서는 이 목록의 순서를 따른다.
+// 돌려주는 값: [{ key, team, name, split, holders, loc(무리의 가장 최근 위치), rows }]
+export function locationGroups(locations, teams, teachers = {}) {
+  const groups = []
+  for (const team of teams) {
+    let rows = locations
+      .filter((l) => l.team_id === team.id)
+      .sort((a, b) => new Date(b.at) - new Date(a.at))
+    if (!rows.length) continue
+    const newest = new Date(rows[0].at)
+    rows = rows.filter((r) => newest - new Date(r.at) <= DROP_MIN * 60000)
+    // 본부는 가장 최근 위치 하나만 표시한다.
+    if (team.id === 0) rows = rows.slice(0, 1)
+
+    // 서로 떨어지지 않은 휴대폰끼리 묶는다. 한 휴대폰이라도 가까우면 같은 무리다.
+    let clusters = []
+    for (const row of rows) {
+      const near = clusters.filter((c) => c.some((o) => !apart(o, row)))
+      clusters = [...clusters.filter((c) => !near.includes(c)), [...near.flat(), row]]
+    }
+
+    const names = teachers[team.id] || []
+    const rank = (row) => {
+      const i = names.indexOf(row.holder)
+      return i < 0 ? names.length : i
+    }
+    const split = clusters.length > 1
+    clusters = clusters
+      .map((c) => [...c].sort((a, b) => rank(a) - rank(b) || String(a.device).localeCompare(String(b.device))))
+      .sort((a, b) => rank(a[0]) - rank(b[0]) || String(a[0].device).localeCompare(String(b[0].device)))
+    clusters.forEach((cluster, i) => {
+      const letter = split ? String.fromCharCode(65 + i) : ''
+      const loc = cluster.reduce((a, r) => (new Date(r.at) > new Date(a.at) ? r : a))
+      groups.push({
+        key: `${team.id}${letter}`,
+        team,
+        name: split ? `${team.id}-${letter}` : team.name,
+        split,
+        holders: [...new Set(cluster.map((r) => r.holder).filter(Boolean))],
+        loc,
+        rows: cluster,
+      })
+    })
+  }
+  return groups
 }

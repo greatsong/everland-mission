@@ -1,32 +1,39 @@
 // 행사 내용은 이 파일만 고치면 된다. 화면 코드는 건드리지 않는다.
 
 export const TEAMS = [
-  { id: 1, name: '1팀', color: '#e8590c' },
-  { id: 2, name: '2팀', color: '#f08c00' },
-  { id: 3, name: '3팀', color: '#2f9e44' },
-  { id: 4, name: '4팀', color: '#1c7ed6' },
-  { id: 5, name: '5팀', color: '#7048e8' },
-  { id: 6, name: '6팀', color: '#d6336c' },
+  { id: 1, name: '1조', color: '#e8590c' },
+  { id: 2, name: '2조', color: '#f08c00' },
+  { id: 3, name: '3조', color: '#2f9e44' },
+  { id: 4, name: '4조', color: '#1c7ed6' },
+  { id: 5, name: '5조', color: '#7048e8' },
+  { id: 6, name: '6조', color: '#d6336c' },
 ]
 
 // 빙고 칸 16개. 놀이기구 탑승 중 촬영이나 뛰어야 하는 미션은 넣지 않는다.
+// 모든 조가 같은 배치를 사용한다. 이 순서대로 왼쪽 위부터 가로로 네 칸씩 놓인다.
+// 가로·세로·대각선 10줄마다 장소가 필요한 미션(조형물·동물·꽃이나 나무)이나 상황이 필요한 미션
+// (다른 팀·놀이기구·간식·점심 기도)이 하나 이상 들어가게 배치해, 출발하자마자 완성되는 줄이 없게 했다.
+// 간식과 점심 기도, 손 하트와 선생님 사진, 점프와 꽃이나 나무 단체 사진은 같은 줄에 두지 않았다.
 export const MISSIONS = [
+  { id: 'start', icon: '🚩', title: '출발 전 우리 조 단체샷' },
   { id: 'jump', icon: '🤸', title: '팀 전원이 점프한 사진' },
-  { id: 'heart', icon: '💛', title: '선생님과 손 하트 만들기' },
-  { id: 'panda', icon: '🐼', title: '판다와 같은 자세로 찍기' },
-  { id: 'tall', icon: '🦒', title: '동물과 함께 찍은 사진' },
-  { id: 'cheer', icon: '📣', title: '팀 구호를 외치는 사진' },
-  { id: 'flower', icon: '🌷', title: '꽃이나 나무 앞에서 단체 사진' },
-  { id: 'nervous', icon: '😬', title: '놀이기구 타기 전 떨리는 표정' },
-  { id: 'snack', icon: '🍿', title: '간식을 나누어 먹는 사진' },
-  { id: 'friends', icon: '🤝', title: '다른 팀과 함께 찍은 사진' },
   { id: 'statue', icon: '🗿', title: '조형물과 같은 자세로 찍기' },
+  { id: 'heart', icon: '💛', title: '선생님과 손 하트 만들기' },
+
   { id: 'point', icon: '👉', title: '모두 다른 방향 가리키기' },
-  { id: 'pray', icon: '🙏', title: '점심 감사 기도 사진' },
+  { id: 'friends', icon: '🤝', title: '다른 팀과 함께 찍은 사진' },
+  { id: 'nervous', icon: '😬', title: '놀이기구 타기 전 떨리는 표정' },
   { id: 'star', icon: '⭐', title: '손을 모아 별 모양 만들기' },
+
+  { id: 'snack', icon: '🍿', title: '간식을 나누어 먹는 사진' },
   { id: 'funny', icon: '🤪', title: '가장 웃긴 표정 짓기' },
-  { id: 'teachers', icon: '📸', title: '학생이 찍은 선생님 두 분 사진' },
   { id: 'praise', icon: '👍', title: '친구를 한 명씩 칭찬하고 엄지 들기' },
+  { id: 'flower', icon: '🌷', title: '꽃이나 나무 앞에서 단체 사진' },
+
+  { id: 'tall', icon: '🦒', title: '동물과 함께 찍은 사진' },
+  { id: 'teachers', icon: '📸', title: '학생이 찍은 선생님 두 분 사진' },
+  { id: 'cheer', icon: '📣', title: '팀 구호를 외치는 사진' },
+  { id: 'pray', icon: '🙏', title: '점심 감사 기도 사진' },
 ]
 
 // 말씀 조각. 어절 단위로 나누어 팀마다 다른 조각을 받는다.

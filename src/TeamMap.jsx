@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { teamsOf } from './shared.jsx'
-import { minutesAgo, agoText } from './logic.js'
+import { teamsOf, teacherMap, withHere, HQ_TEAM } from './shared.jsx'
+import { minutesAgo, agoText, locationGroups, distanceM } from './logic.js'
 
 const clock = (iso) => new Date(iso).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })
 
@@ -12,7 +12,13 @@ const EVERLAND = [37.2925, 127.2035]
 // 이름표가 겹친다고 보는 화면 거리(픽셀). 이보다 가까운 팀은 이름표 하나로 합친다.
 const NEAR_PX = 40
 
-// 여러 팀의 마지막 위치를 한 화면에 표시한다. 지도 자료는 오픈스트리트맵이다.
+const esc = (text) => String(text).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
+
+// 이름표. 가운데가 위치에 오도록 감싸서 놓는다(이름 길이와 관계없이).
+const pinIcon = (html) => L.divIcon({ className: '', html: `<div class="pin-wrap">${html}</div>`, iconSize: [0, 0], iconAnchor: [0, 0] })
+
+// 여러 조의 마지막 위치를 한 화면에 표시한다. 지도 자료는 오픈스트리트맵이다.
+// 같은 조의 휴대폰이 서로 떨어져 있으면 1-A, 1-B처럼 무리마다 따로 표시하고, 함께 있으면 하나로 표시한다.
 // tracks: 이동 경로 점 목록(시간 순서), until: 이 시각(ms)까지의 경로와 위치만 표시. 둘 다 없으면 마지막 위치만 표시한다.
 export default function TeamMap({ data, here, myTeamId, tracks, until }) {
   const boxRef = useRef(null)
@@ -47,7 +53,6 @@ export default function TeamMap({ data, here, myTeamId, tracks, until }) {
     if (!map || !layer) return
     layer.clearLayers()
     const points = []
-    const pins = []
 
     // 미션·지령·퀴즈를 방금 완료한 팀을 찾는다. 화면을 처음 열 때는 건너뛴다.
     const keys = new Set([
@@ -59,88 +64,114 @@ export default function TeamMap({ data, here, myTeamId, tracks, until }) {
       if (fresh.length) {
         const names = [...new Set(fresh)].map((id) => teamsOf(data).find((t) => t.id === id)?.name).filter(Boolean)
         for (const id of fresh) burstRef.current[id] = Date.now() + 4000
-        if (names.length) setRecent(`⭐ 방금 ${names.join(', ')}이 미션을 완료했습니다`)
+        if (names.length) setRecent(`⭐ 방금 ${names.join(', ')}가 미션을 완료했습니다`)
       }
     }
     seenRef.current = keys
-    // 본부(팀 번호 0)를 먼저, 이어서 참가 팀을 표시한다.
-    const HQ = { id: 0, name: '본부', color: '#1f2a24' }
-    for (const team of [HQ, ...teamsOf(data)]) {
-      let loc = data.locations.find((l) => l.team_id === team.id)
-      // 우리 팀은 방금 잰 위치가 있으면 그것을 사용한다.
-      if (team.id === myTeamId && here) loc = { ...here, at: data.now }
-      let label = null
-      if (tracks) {
-        const path = tracks.filter((p) => p.team_id === team.id && (!until || new Date(p.at).getTime() <= until))
-        if (path.length > 1) {
-          L.polyline(path.map((p) => [p.lat, p.lng]), { color: team.color, weight: 4, opacity: 0.75 }).addTo(layer)
+    // 본부(팀 번호 0)를 먼저, 이어서 참가 조를 표시한다.
+    const teams = [HQ_TEAM, ...teamsOf(data)]
+    const teachers = teacherMap(data)
+    const visible = (p) => !until || new Date(p.at).getTime() <= until
+
+    // 이동 경로는 휴대폰마다 따로 그린다. 같은 조의 두 번째 휴대폰부터는 점선이다.
+    if (tracks) {
+      for (const team of teams) {
+        const mine = tracks.filter((p) => p.team_id === team.id && visible(p))
+        const names = teachers[team.id] || []
+        const rank = (device) => {
+          const last = mine.filter((p) => (p.device || '') === device).pop()
+          const i = names.indexOf(last?.holder)
+          return i < 0 ? names.length : i
         }
-        // 지나온 지점마다 시각을 볼 수 있는 작은 점을 찍는다.
-        for (const p of path) {
-          L.circleMarker([p.lat, p.lng], { radius: 4, color: '#fff', weight: 1, fillColor: team.color, fillOpacity: 1 })
-            .bindPopup(`${team.name} · ${clock(p.at)}`)
-            .addTo(layer)
-        }
-        if (until) {
-          const last = path[path.length - 1]
-          loc = last ? { lat: last.lat, lng: last.lng, at: last.at } : null
-          label = last ? clock(last.at) : null
-        }
+        const devices = [...new Set(mine.map((p) => p.device || ''))].sort((a, b) => rank(a) - rank(b))
+        devices.forEach((device, i) => {
+          const path = mine.filter((p) => (p.device || '') === device)
+          if (path.length > 1) {
+            L.polyline(path.map((p) => [p.lat, p.lng]), { color: team.color, weight: 4, opacity: 0.75, dashArray: i ? '8 7' : null }).addTo(layer)
+          }
+          // 지나온 지점마다 시각을 볼 수 있는 작은 점을 찍는다.
+          for (const p of path) {
+            L.circleMarker([p.lat, p.lng], { radius: 4, color: '#fff', weight: 1, fillColor: team.color, fillOpacity: 1 })
+              .bindPopup(esc(`${team.name}${p.holder ? ` · ${p.holder}` : ''} · ${clock(p.at)}`))
+              .addTo(layer)
+          }
+        })
       }
-      if (!loc) continue
-      pins.push({ team, loc, label, px: map.latLngToContainerPoint([loc.lat, loc.lng]) })
-      points.push([loc.lat, loc.lng])
     }
 
-    // 이름표가 겹칠 만큼 가까운 팀끼리 묶는다(화면 거리 기준). 확대하면 다시 나뉜다.
-    const groups = []
+    // 표시할 위치: 시각을 고르면 그때까지의 휴대폰별 마지막 경로 점, 아니면 서버의 마지막 위치(이 휴대폰은 방금 기록한 위치)
+    let rows
+    if (tracks && until) {
+      const last = new Map()
+      for (const p of tracks) if (visible(p)) last.set(`${p.team_id}|${p.device || ''}`, { ...p, device: p.device || '' })
+      rows = [...last.values()]
+    } else {
+      rows = withHere(data.locations, myTeamId, here, data.now)
+    }
+    const groups = locationGroups(rows, teams, teachers)
+    for (const g of groups) points.push([g.loc.lat, g.loc.lng])
+    const pins = groups.map((g) => ({ g, px: map.latLngToContainerPoint([g.loc.lat, g.loc.lng]) }))
+
+    // 이름표가 겹칠 만큼 가까운 무리끼리 묶는다(화면 거리 기준). 확대하면 다시 나뉜다.
+    const bunches = []
     for (const pin of pins) {
-      const group = groups.find((g) => g.some((o) => o.px.distanceTo(pin.px) < NEAR_PX))
-      if (group) group.push(pin)
-      else groups.push([pin])
+      const bunch = bunches.find((b) => b.some((o) => o.px.distanceTo(pin.px) < NEAR_PX))
+      if (bunch) bunch.push(pin)
+      else bunches.push([pin])
     }
 
-    for (const group of groups) {
-      const state = (pin) => {
-        const minutes = minutesAgo(pin.loc.at, data.now)
-        return {
-          minutes,
-          // live: 2분 안에 갱신된 위치(파동), burst: 방금 미션을 완료한 팀(반짝임)
-          live: !pin.label && minutes <= 2,
-          stale: !pin.label && minutes > 10,
-          burst: !pin.label && burstRef.current[pin.team.id] > Date.now(),
-        }
+    // 이름표 아래에 적는 시간: 지금 보기에서는 "3분 전", 시각을 고른 경로 보기에서는 기록 시각
+    const when = (g) => (until ? clock(g.loc.at) : agoText(g.loc.at, data.now))
+    const state = ({ g }) => {
+      const minutes = minutesAgo(g.loc.at, data.now)
+      return {
+        // live: 2분 안에 갱신된 위치(파동), stale: 10분 넘게 갱신되지 않은 위치(흐림), burst: 방금 미션을 완료한 조(반짝임)
+        live: !until && minutes <= 2,
+        stale: !until && minutes > 10,
+        burst: !until && burstRef.current[g.team.id] > Date.now(),
       }
-      const line = (pin) =>
-        pin.label
-          ? `${pin.team.name} · ${pin.label} 기록`
-          : `${pin.team.name} · ${clock(pin.loc.at)} 기록(${agoText(pin.loc.at, data.now)})${pin.loc.acc ? ` · 오차 약 ${Math.round(pin.loc.acc)}m` : ''}`
+    }
+    // 팝업 한 줄: 무리 이름, 휴대폰을 가진 선생님, 기록 시각, 오차, 같은 조 다른 무리까지 거리
+    const line = ({ g }) => {
+      const others = groups.filter((o) => o.team === g.team && o !== g).map((o) => `${o.name}까지 약 ${distanceM(g.loc, o.loc)}m`)
+      return esc(
+        [
+          `${g.name}${g.holders.length ? ` · ${g.holders.join('·')}` : ''}`,
+          until ? `${clock(g.loc.at)} 기록` : `${clock(g.loc.at)} 기록(${agoText(g.loc.at, data.now)})${g.loc.acc ? ` · 오차 약 ${Math.round(g.loc.acc)}m` : ''}`,
+          ...others,
+        ].join(' · '),
+      )
+    }
 
-      if (group.length === 1) {
-        const pin = group[0]
+    for (const bunch of bunches) {
+      if (bunch.length === 1) {
+        const pin = bunch[0]
+        const { g } = pin
         const s = state(pin)
         const cls = `map-pin${s.stale ? ' stale' : ''}${s.live ? ' live' : ''}${s.burst ? ' burst' : ''}`
-        // 팀 이름 아래에 그 위치가 기록된 시각을 적는다.
-        const html = `<span class="${cls}" style="background:${pin.team.color};--pin:${pin.team.color}">${pin.team.name}<small>${clock(pin.loc.at)}</small>${s.burst ? '<i class="map-star">⭐</i>' : ''}</span>`
-        L.marker([pin.loc.lat, pin.loc.lng], { icon: L.divIcon({ className: '', html, iconSize: [56, 40], iconAnchor: [28, 20] }) })
-          .bindPopup(line(pin))
-          .addTo(layer)
+        // 나뉜 무리는 이름 옆에 휴대폰을 가진 선생님을 적고, 이름 아래에 몇 분 전 위치인지 적는다.
+        const who = g.split && g.holders.length ? ` <em>${esc(g.holders.join('·'))}</em>` : ''
+        const html = `<span class="${cls}" style="background:${g.team.color};--pin:${g.team.color}">${esc(g.name)}${who}<small>${when(g)}</small>${s.burst ? '<i class="map-star">⭐</i>' : ''}</span>`
+        L.marker([g.loc.lat, g.loc.lng], { icon: pinIcon(html) }).bindPopup(line(pin)).addTo(layer)
         continue
       }
 
-      // 여러 팀이 모여 있으면 이름표 하나로 합친다. 예: "본부·1,2,6팀"
-      const states = group.map(state)
-      const numbers = group.filter((p) => p.team.id !== 0).map((p) => p.team.id).join(',')
-      const name = [group.some((p) => p.team.id === 0) ? '본부' : '', numbers ? `${numbers}팀` : ''].filter(Boolean).join('·')
-      const newest = group.reduce((a, p) => (new Date(p.loc.at) > new Date(a.loc.at) ? p : a))
-      const dots = group.map((p) => `<i style="background:${p.team.color}"></i>`).join('')
+      // 여러 무리가 모여 있으면 이름표 하나로 합친다. 예: "본부·1,2조·5-A"
+      const states = bunch.map(state)
+      const whole = bunch.filter(({ g }) => g.team.id !== 0 && !g.split).map(({ g }) => g.team.id)
+      const name = [
+        bunch.some(({ g }) => g.team.id === 0) ? '본부' : '',
+        whole.length ? `${whole.join(',')}조` : '',
+        ...bunch.filter(({ g }) => g.split).map(({ g }) => g.name),
+      ].filter(Boolean).join('·')
+      const newest = bunch.reduce((a, p) => (new Date(p.g.loc.at) > new Date(a.g.loc.at) ? p : a)).g
+      const dots = bunch.map(({ g }) => `<i style="background:${g.team.color}"></i>`).join('')
       const cls = `map-pin group${states.every((s) => s.stale) ? ' stale' : ''}${states.some((s) => s.live) ? ' live' : ''}${states.some((s) => s.burst) ? ' burst' : ''}`
-      const html = `<span class="${cls}" style="--pin:#343a40"><b class="group-dots">${dots}</b>${name}<small>최근 ${clock(newest.loc.at)}</small>${states.some((s) => s.burst) ? '<i class="map-star">⭐</i>' : ''}</span>`
-      const lat = group.reduce((sum, p) => sum + p.loc.lat, 0) / group.length
-      const lng = group.reduce((sum, p) => sum + p.loc.lng, 0) / group.length
-      const width = 40 + name.length * 13
-      L.marker([lat, lng], { icon: L.divIcon({ className: '', html, iconSize: [width, 52], iconAnchor: [width / 2, 26] }) })
-        .bindPopup(`<b>함께 있는 팀</b><br>${group.map(line).join('<br>')}<br><small>지도를 확대하면 팀별로 나뉩니다.</small>`)
+      const html = `<span class="${cls}" style="--pin:#343a40"><b class="group-dots">${dots}</b>${esc(name)}<small>${until ? `${clock(newest.loc.at)} 기록` : `${agoText(newest.loc.at, data.now)} 기록`}</small>${states.some((s) => s.burst) ? '<i class="map-star">⭐</i>' : ''}</span>`
+      const lat = bunch.reduce((sum, p) => sum + p.g.loc.lat, 0) / bunch.length
+      const lng = bunch.reduce((sum, p) => sum + p.g.loc.lng, 0) / bunch.length
+      L.marker([lat, lng], { icon: pinIcon(html) })
+        .bindPopup(`<b>함께 있는 조</b><br>${bunch.map(line).join('<br>')}<br><small>지도를 확대하면 무리별로 나뉩니다.</small>`)
         .addTo(layer)
     }
     // 처음 위치가 들어왔을 때 한 번만 모든 팀이 보이게 맞춘다. 그 뒤에는 사용자가 움직인 화면을 유지한다.

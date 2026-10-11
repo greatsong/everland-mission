@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { TEAMS, MISSIONS, SCORE } from './data.js'
 import { rpc, BadCodeError, loadSession, saveSession, loadState, saveState, compressPhoto, report } from './store.js'
-import { boardFor, teamScore, doneByTeam, missionInfo, minutesAgo, agoText, rushRank, completedLines } from './logic.js'
-import { useRemote, usePhoto, Photo, VerseView, Ranking, teamsOf, useLocationShare, LocationList, everlandMapUrl, TeamAvatar, teachersOf } from './shared.jsx'
+import { boardFor, teamScore, doneByTeam, missionInfo, minutesAgo, agoText, rushRank, completedLines, teacherNames, locationGroups } from './logic.js'
+import { useRemote, usePhoto, Photo, VerseView, Ranking, teamsOf, useLocationShare, LocationList, everlandMapUrl, TeamAvatar, teachersOf, teacherMap, withHere, HQ_TEAM, SplitNote } from './shared.jsx'
 import { lazy, Suspense } from 'react'
 import Games from './Games.jsx'
 
@@ -133,7 +133,7 @@ function TeamSelect({ session, onSelect, onLogout }) {
 function TeamHome({ session, onLeave, onLogout }) {
   const { code, teamId } = session
   const team = TEAMS.find((t) => t.id === teamId)
-  const board = useMemo(() => boardFor(teamId), [teamId])
+  const board = boardFor()
   const [state, setState] = useState(() => loadState(teamId))
   const [tab, setTab] = useState('bingo')
   const [notice, setNotice] = useState('')
@@ -613,7 +613,7 @@ function TeamProfile({ code, teamId, data, refresh }) {
   const team = TEAMS.find((t) => t.id === teamId)
   const profile = data?.teams?.find((t) => t.team_id === teamId)
   const [editing, setEditing] = useState(false)
-  const [teachers, setTeachers] = useState('')
+  const [typed, setTeachers] = useState(null) // null이면 저장된 이름(본부가 미리 넣은 이름 포함)을 보여 준다
   const [photo, setPhoto] = useState(null)
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
@@ -621,6 +621,7 @@ function TeamProfile({ code, teamId, data, refresh }) {
 
   if (!data) return null
   const complete = Boolean(profile?.photo_at)
+  const teachers = typed ?? profile?.teachers ?? ''
 
   if (complete && !editing) {
     return (
@@ -689,6 +690,7 @@ const FEED_STEP = 6
 
 function Everyone({ code, data, teamId, refresh, locate }) {
   const [limit, setLimit] = useState(FEED_STEP)
+  const [pickNote, setPickNote] = useState('')
   if (!data) return <p className="guide">다른 팀의 기록을 불러오는 중입니다. 통신이 연결되어야 표시됩니다.</p>
 
   async function cheer(sub) {
@@ -701,6 +703,7 @@ function Everyone({ code, data, teamId, refresh, locate }) {
   }
 
   const feed = data.submissions.slice(0, limit)
+  const teachers = teacherNames(teachersOf(data, teamId))
   return (
     <>
       <h2 className="section">팀 순위</h2>
@@ -709,10 +712,35 @@ function Everyone({ code, data, teamId, refresh, locate }) {
       <div className="locate">
         <p className="guide">
           위치 공유를 켜면 미션을 완료할 때마다, 그리고 이 화면이 열려 있는 동안 3분마다 본부에 우리 팀 위치를 보냅니다.
+          조가 나뉘면 선생님마다 각자 휴대폰에서 위치 공유를 켭니다. 휴대폰끼리 20m 넘게 떨어지면 지도에 무리별로 표시됩니다.
         </p>
-        <button className={locate.on ? 'ghost' : 'primary'} onClick={() => locate.toggle(!locate.on)}>
+        {teachers.length > 0 && (
+          <div className="holder-pick" role="group" aria-label="이 휴대폰을 가진 선생님">
+            이 휴대폰을 가진 선생님
+            {teachers.map((name) => (
+              <button key={name} className={locate.holder === name ? 'on' : ''} onClick={() => { locate.setHolder(name); setPickNote('') }}>
+                {name}
+              </button>
+            ))}
+          </div>
+        )}
+        {pickNote && <p className="error">{pickNote}</p>}
+        <button
+          className={locate.on ? 'ghost' : 'primary'}
+          onClick={() => {
+            // 조가 나뉘었을 때 지도에 선생님 이름이 나오도록, 켜기 전에 이 휴대폰을 가진 선생님을 고른다.
+            if (!locate.on && teachers.length && !teachers.includes(locate.holder)) {
+              setPickNote('이 휴대폰을 가진 선생님을 먼저 고릅니다.')
+              return
+            }
+            locate.toggle(!locate.on)
+          }}
+        >
           {locate.on ? '위치 공유 끄기' : '위치 공유 켜기'}
         </button>
+        {locate.on && teachers.length > 0 && !teachers.includes(locate.holder) && (
+          <p className="error">이 휴대폰을 가진 선생님을 고르면 조가 나뉘었을 때 지도에 이름이 표시됩니다.</p>
+        )}
         {locate.error && <p className="error">{locate.error}</p>}
         {locate.on && locate.here && (
           <a className="primary map-link" href={everlandMapUrl(locate.here.lat, locate.here.lng)} target="_blank" rel="noreferrer">
@@ -725,6 +753,7 @@ function Everyone({ code, data, teamId, refresh, locate }) {
       {data.share_locations && (
         <>
           <h2 className="section">📍 모든 팀 위치</h2>
+          <SplitNote groups={locationGroups(withHere(data.locations, teamId, locate.here, data.now), [HQ_TEAM, ...teamsOf(data)], teacherMap(data))} />
           <Suspense fallback={<p className="guide">지도를 불러오는 중입니다.</p>}>
             <TeamMap data={data} here={locate.here} myTeamId={teamId} />
           </Suspense>

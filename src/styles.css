@@ -380,3 +380,14 @@ h1, h2, p, figure { margin: 0; }
 .map-pin.group { background: #343a40; padding: 4px 10px 5px; white-space: nowrap; }
 .group-dots { display: flex; justify-content: center; gap: 3px; margin-bottom: 2px; }
 .group-dots i { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid #fff; }
+
+/* 조가 나뉠 때: 가운데 맞춤 이름표, 휴대폰을 가진 선생님, 나뉨 알림 */
+.pin-wrap { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); }
+.map-pin em { font-style: normal; font-weight: 700; font-size: 11.5px; }
+.split-note { list-style: none; margin: 0 0 8px; padding: 8px 12px; border-radius: 10px; background: #fff3bf; border: 1px solid #ffd43b; font-size: 14px; display: flex; flex-direction: column; gap: 4px; }
+.loc-holder { display: block; font-weight: 700; color: var(--ink); }
+.holder-pick { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; }
+.holder-pick button { border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; background: var(--card); }
+.holder-pick button.on { background: var(--team); border-color: var(--team); color: #fff; font-weight: 700; }
+/* 이름이 긴 이름표도 파동 크기는 짧은 이름표와 같게 한다. */
+.map-pin.live::before, .map-pin.live::after { width: 56px; }
