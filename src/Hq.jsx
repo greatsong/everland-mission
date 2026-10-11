@@ -390,30 +390,49 @@ function OrderForm({ run }) {
 
   return (
     <form className="order-form" onSubmit={submit}>
+      <p className="guide">지령을 보내면 모든 팀 휴대폰에 알림이 크게 표시되고, 빙고 탭 위쪽에 남습니다.</p>
+
+      <p className="form-label">① 미션 종류</p>
       <div className="seg">
-        <button type="button" className={kind === 'photo' ? 'on' : ''} onClick={() => setKind('photo')}>사진 미션</button>
-        <button type="button" className={kind === 'answer' ? 'on' : ''} onClick={() => setKind('answer')}>정답 미션</button>
-        <span className="seg-gap" />
-        {!rush && [10, 20, 30].map((p) => (
-          <button type="button" key={p} className={points === p ? 'on' : ''} onClick={() => setPoints(p)}>{p}점</button>
+        <button type="button" className={kind === 'photo' ? 'on' : ''} onClick={() => setKind('photo')}>📷 사진 미션</button>
+        <button type="button" className={kind === 'answer' ? 'on' : ''} onClick={() => setKind('answer')}>✏️ 정답 미션</button>
+      </div>
+      <p className="guide">
+        {kind === 'photo'
+          ? '팀이 사진을 올리면 완료됩니다. 사진만 보고 확인할 수 있게 구체적으로 적습니다.'
+          : '팀이 정답을 입력해 맞히면 완료됩니다. 현장에서 찾아 답할 수 있는 질문이 좋습니다.'}
+      </p>
+
+      <p className="form-label">② 점수</p>
+      <div className="seg">
+        {[10, 20, 30].map((p) => (
+          <button type="button" key={p} className={!rush && points === p ? 'on' : ''} onClick={() => { setPoints(p); setRush(false) }}>{p}점</button>
         ))}
         <button type="button" className={rush ? 'on' : ''} onClick={() => setRush(!rush)}>⏱ 타임어택</button>
       </div>
-      {rush && <p className="guide">타임어택은 먼저 완료한 순서대로 30·20·10점, 그 뒤는 5점을 받습니다. 이동 중에 뛰지 않도록 제자리에서 할 수 있는 내용으로 냅니다.</p>}
+      <p className="guide">
+        {rush
+          ? '먼저 완료한 순서대로 30·20·10점, 그 뒤는 5점입니다. 뛰지 않도록 제자리에서 할 수 있는 내용으로 냅니다.'
+          : '빙고 칸 하나가 10점, 빙고 한 줄이 30점입니다. 시간이 걸리거나 어려운 미션일수록 점수를 높입니다.'}
+      </p>
+
+      <p className="form-label">③ 내용</p>
       <input
         value={body}
         onChange={(e) => setBody(e.target.value)}
         maxLength={200}
         aria-label="지령 내용"
-        placeholder={kind === 'photo' ? '예: 쓰레기를 주워 버리는 인증 사진을 올립니다' : '예: 정문 매표소 옆 동상의 동물은 무엇입니까?'}
+        placeholder={kind === 'photo' ? '예: 회전목마 앞에서 팀 전원이 손을 흔드는 사진' : '예: 정문 매표소 옆 동상의 동물은 무엇입니까?'}
       />
       {kind === 'answer' && (
         <>
-          <input value={answer} onChange={(e) => setAnswer(e.target.value)} maxLength={40} aria-label="정답" placeholder="정답(낱말 하나)" />
-          <p className="guide">정답은 낱말 하나로 정합니다. 띄어쓰기와 영문 대소문자는 구분하지 않습니다.</p>
+          <p className="form-label">④ 정답</p>
+          <input value={answer} onChange={(e) => setAnswer(e.target.value)} maxLength={40} aria-label="정답" placeholder="예: 판다, 곰" />
+          <p className="guide">정답이 여러 가지면 쉼표로 나누어 적습니다. 띄어쓰기와 영문 대소문자는 구분하지 않습니다.</p>
         </>
       )}
       <button className="primary">지령 보내기</button>
+      <p className="guide">보낸 지령은 아래 목록에서 팀별 완료 여부를 확인하고, 끝낼 때 마감합니다. 마감하면 더 올릴 수 없습니다.</p>
     </form>
   )
 }
@@ -654,6 +673,7 @@ function QuizForm({ kind, code, run }) {
           <button type="button" className="ghost" disabled={!args} onClick={() => submit(false)}>보관</button>
           <button type="button" className="primary" disabled={!args} onClick={() => submit(true)}>바로 출제</button>
         </div>
+        <p className="guide">바로 출제한 문제는 모든 팀의 퀴즈 대결 탭에 곧바로 나옵니다. 보관한 문제는 아래 목록에서 골라 출제합니다.</p>
       </form>
 
       <div className="composer-preview">

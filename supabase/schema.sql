@@ -300,7 +300,11 @@ begin
   if not found then
     raise exception 'EVM_ORDER_CLOSED' using errcode = 'P0001';
   end if;
-  v_ok := regexp_replace(lower(coalesce(p_text, '')), '\s', '', 'g') = regexp_replace(lower(v.answer), '\s', '', 'g');
+  -- 정답 칸에 쉼표로 적은 낱말 중 하나와 맞으면 정답이다(띄어쓰기·대소문자 무시). 예: "판다, 곰"
+  v_ok := exists (
+    select 1 from unnest(string_to_array(v.answer, ',')) k
+    where evm_norm(k) <> '' and evm_norm(p_text) = evm_norm(k)
+  );
   if v_ok then
     if v.rush then
       v.points := coalesce((array[30, 20, 10])[1 + (select count(*) from evm_scores where game_id = 'order:' || v.id)::int], 5);
