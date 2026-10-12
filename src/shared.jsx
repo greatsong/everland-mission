@@ -300,6 +300,30 @@ export function useLocationShare(code, teamId) {
   return { on, toggle, here, error, ping, positionNow, holder, setHolder, lastSent, sending }
 }
 
+// 📍 위치 버튼: 마지막으로 보낸 시각을 보여 주고, 누르면 바로 보낸다. 위치 공유가 꺼져 있으면 onOff를 부른다.
+export function LocateButton({ locate, onOff }) {
+  const pressed = useRef(false) // 버튼을 눌러 보낸 경우 잠깐 "보냈습니다"를 보여 준다
+  const [flash, setFlash] = useState(false)
+  useEffect(() => {
+    if (!locate.lastSent || !pressed.current) return
+    pressed.current = false
+    setFlash(true)
+    const timer = setTimeout(() => setFlash(false), 2000)
+    return () => clearTimeout(timer)
+  }, [locate.lastSent])
+  function locateNow() {
+    if (!locate.on) return onOff()
+    pressed.current = true
+    locate.ping()
+  }
+  const label = !locate.on ? '위치 꺼짐' : locate.sending ? '보내는 중' : flash ? '보냈습니다' : locate.error ? '위치 실패' : locate.lastSent ? clockOf(locate.lastSent) : '위치'
+  return (
+    <button className={`checkin${!locate.on || (locate.error && !locate.sending) ? ' warn' : ''}`} onClick={locateNow} aria-label="지금 위치 보내기">
+      📍 {label}
+    </button>
+  )
+}
+
 // 서버의 위치 목록에 이 휴대폰이 방금 기록한 위치를 반영한다. 아직 서버에 없으면 더한다.
 export function withHere(locations, teamId, here, now) {
   if (!here || teamId == null) return locations

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { TEAMS, MISSIONS, SCORE } from './data.js'
 import { rpc, BadCodeError, loadSession, saveSession, loadState, saveState, compressPhoto, report } from './store.js'
 import { boardFor, teamScore, doneByTeam, missionInfo, rushRank, completedLines, teacherNames, locationGroups } from './logic.js'
-import { useRemote, usePhoto, Photo, Ranking, teamsOf, useLocationShare, LocationList, everlandMapUrl, TeamAvatar, teachersOf, teacherMap, withHere, HQ_TEAM, SplitNote } from './shared.jsx'
+import { useRemote, usePhoto, Photo, Ranking, teamsOf, useLocationShare, LocationList, everlandMapUrl, TeamAvatar, teachersOf, teacherMap, withHere, HQ_TEAM, SplitNote, LocateButton } from './shared.jsx'
 import { lazy, Suspense } from 'react'
 import Games from './Games.jsx'
 
@@ -254,27 +254,7 @@ function TeamHome({ session, onLeave, onLogout }) {
     })
   }
 
-  // 위치 버튼: 마지막으로 보낸 시각을 보여 주고, 누르면 바로 보낸다. 꺼져 있으면 지도 탭의 위치 공유 켜기로 간다.
   const teachers = data ? teacherNames(teachersOf(data, teamId)) : []
-  const pressed = useRef(false) // 위치 버튼을 눌러 보낸 경우 잠깐 "보냈습니다"를 보여 준다
-  const [flash, setFlash] = useState(false)
-  useEffect(() => {
-    if (!locate.lastSent || !pressed.current) return
-    pressed.current = false
-    setFlash(true)
-    const timer = setTimeout(() => setFlash(false), 2000)
-    return () => clearTimeout(timer)
-  }, [locate.lastSent])
-  function locateNow() {
-    if (!locate.on) {
-      setTab('map')
-      window.scrollTo(0, 0)
-      return
-    }
-    pressed.current = true
-    locate.ping()
-  }
-  const locateLabel = !locate.on ? '위치 꺼짐' : locate.sending ? '보내는 중' : flash ? '보냈습니다' : locate.error ? '위치 실패' : locate.lastSent ? hhmm(locate.lastSent) : '위치'
 
   // 아직 하지 않은 진행 중 지령 수
   const todo = (data?.orders || []).filter((o) => o.open && !orderFinished(data, teamId, done, o)).length
@@ -296,9 +276,8 @@ function TeamHome({ session, onLeave, onLogout }) {
         <button className="checkin" onClick={() => setInbox(true)}>
           🔔 알림{todo > 0 && <b className="badge">{todo}</b>}
         </button>
-        <button className={`checkin${!locate.on || (locate.error && !locate.sending) ? ' warn' : ''}`} onClick={locateNow} aria-label="지금 위치 보내기">
-          📍 {locateLabel}
-        </button>
+        {/* 위치 공유가 꺼져 있으면 지도 탭의 위치 공유 켜기로 간다. */}
+        <LocateButton locate={locate} onOff={() => { setTab('map'); window.scrollTo(0, 0) }} />
         {/* 평소에는 숨기고, 올리는 중이거나 연결이 끊겼을 때만 알린다. */}
         {(!online || pending > 0) && (
           <span className={online ? 'net' : 'net off'}>

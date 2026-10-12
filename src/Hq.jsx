@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { TEAMS, MISSIONS, QUIZ_KINDS, SEED_QUIZ, toChosung } from './data.js'
 import { rpc, suggestQuiz } from './store.js'
 import { doneByTeam, missionInfo, rushRank, locationGroups, agoText } from './logic.js'
-import { useRemote, Photo, Ranking, teamsOf, LocationList, useLocationShare, teacherMap, withHere, HQ_TEAM, SplitNote } from './shared.jsx'
+import { useRemote, Photo, Ranking, teamsOf, LocationList, useLocationShare, teacherMap, withHere, HQ_TEAM, SplitNote, LocateButton } from './shared.jsx'
 
 const TeamMap = lazy(() => import('./TeamMap.jsx'))
 
@@ -19,6 +19,11 @@ export default function Hq({ session, onLogout }) {
   const locate = useLocationShare(code, 0) // 본부 위치(팀 번호 0)
 
   const doneMap = useMemo(() => doneByTeam(data?.submissions || []), [data])
+
+  // 본부 위치를 보내면 서버 상태를 바로 다시 받아 위치 목록에도 반영한다.
+  useEffect(() => {
+    if (locate.lastSent) refresh()
+  }, [locate.lastSent, refresh])
 
   // 경로 보기를 켠 동안 서버 상태가 갱신될 때마다 경로도 다시 받는다.
   const showTracks = tracks !== null
@@ -90,6 +95,7 @@ export default function Hq({ session, onLogout }) {
       <header className="hq-top">
         <h1>🎪 본부 <small>하늘씨앗 초등부 2026 가을 야유회</small></h1>
         <span className={online ? 'net' : 'net off'}>{online ? '연결됨' : '연결 끊김'}</span>
+        <LocateButton locate={locate} onOff={() => { setTab('settings'); setMessage('본부 위치 표시가 꺼져 있습니다. 설정 탭의 "위치"에서 켭니다.') }} />
         <a href="#show">슬라이드쇼</a>
         <a href="#">팀 화면</a>
       </header>
@@ -228,7 +234,7 @@ export default function Hq({ session, onLogout }) {
               본부 위치 표시
               <button className={locate.on ? 'on' : ''} onClick={() => locate.toggle(true)}>켜기</button>
               <button className={!locate.on ? 'on' : ''} onClick={() => locate.toggle(false)}>끄기</button>
-              <small>{locate.error || '이 기기의 위치를 지도에 "본부"로 표시합니다.'}</small>
+              <small>{locate.error || '이 기기의 위치를 지도에 "본부"로 표시합니다. 1분마다 보내고, 화면 위쪽 📍 버튼을 누르면 바로 보냅니다.'}</small>
             </p>
             <p className="team-count">
               팀끼리 서로의 위치 보기
