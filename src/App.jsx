@@ -4,8 +4,8 @@ import { rpc, BadCodeError, loadSession, saveSession, loadState, saveState, comp
 import { boardFor, teamScore, doneByTeam, missionInfo, rushRank, completedLines, teacherNames, locationGroups, liveBattle, battleRule, serverNow, battleOrder } from './logic.js'
 import { useRemote, usePhoto, Photo, Ranking, teamsOf, useLocationShare, LocationList, everlandMapUrl, TeamAvatar, teachersOf, teacherMap, withHere, HQ_TEAM, SplitNote, LocateButton } from './shared.jsx'
 import { lazy, Suspense } from 'react'
-import Games from './Games.jsx'
-import { CelebrationLayer, celebrate, resultLook, unlockAudio } from './celebrate.jsx'
+import Games, { CountdownNumber } from './Games.jsx'
+import { CelebrationLayer, celebrate, resultLook, unlockAudio, markShown, dismissCelebration } from './celebrate.jsx'
 
 const TeamMap = lazy(lazyImport(() => import('./TeamMap.jsx')))
 import Hq from './Hq.jsx'
@@ -159,13 +159,22 @@ function TeamHome({ session, onLeave, onLogout }) {
       if (!q.battle) continue
       const order = battleOrder(data, q.id)
       const mine = order.findIndex((s) => s.team_id === teamId)
-      if (mine >= 0 && now - new Date(order[mine].at) < 60000) {
-        celebrate({ key: `quiz:${q.id}`, ...resultLook(q, order[mine].score, mine + 1, TEAMS.find((t) => t.id === order[0].team_id)?.name) })
+      if (mine >= 0) {
+        // 우리 팀이 맞혔으면(늦게 맞힌 경우 포함) "다른 팀이 맞혔습니다" 띠가 축하 화면을 덮지 않게 한다.
+        markShown(`win:${q.id}`)
+        if (now - new Date(order[mine].at) < 60000) {
+          celebrate({ key: `quiz:${q.id}`, ...resultLook(q, order[mine].score, mine + 1, TEAMS.find((t) => t.id === order[0].team_id)?.name) })
+        }
       }
       const first = order[0]
-      if (q.battle === 'first' && first && first.team_id !== teamId && now - new Date(first.at) < 60000) {
+      if (q.battle === 'first' && mine < 0 && first && first.team_id !== teamId && now - new Date(first.at) < 60000) {
         const name = TEAMS.find((t) => t.id === first.team_id)?.name || '다른 팀'
-        celebrate({ key: `win:${q.id}`, tier: 'rival', title: `${name}이 가장 먼저 맞혔습니다`, sub: `이번 문제의 점수는 ${name}이 받았습니다. 다음 문제를 기다립니다.` })
+        // 객관식에서 이미 틀린 팀은 더 답할 수 없으므로 다음 배틀을 안내한다.
+        const tried = data.scores.some((s) => s.team_id === teamId && s.game_id === `quiz:${q.id}`)
+        celebrate({
+          key: `win:${q.id}`, tier: 'rival', title: `${name}이 1등으로 맞혔습니다`,
+          sub: tried ? '다음 배틀을 기다립니다.' : '지금 맞혀도 정답으로 기록됩니다. 점수는 없습니다.',
+        })
       }
     }
   }, [data, teamId])
@@ -326,7 +335,7 @@ function TeamHome({ session, onLeave, onLogout }) {
       {notice && <p className="notice">{notice}</p>}
       <OrderAlert teamId={teamId} orders={data?.orders} onOpen={() => setTab('bingo')} />
       <BattleAlert data={data} teamId={teamId} onOpen={(id) => { setTab('games'); setFocusQuiz(id); window.scrollTo(0, 0) }} />
-      <CelebrationLayer />
+      <CelebrationLayer teamName={team.name} />
       {inbox && (
         <Inbox data={data} teamId={teamId} done={done} onClose={() => setInbox(false)} onGo={() => { setInbox(false); setTab('bingo'); window.scrollTo(0, 0) }} />
       )}
@@ -378,16 +387,11 @@ function Bingo({ code, teamId, board, done, data, refresh, onCapture, onRemove, 
   // 완성된 줄과 그 줄에 속한 칸. 줄이 새로 완성되면 잠깐 축하 표시를 띄운다.
   const lines = completedLines(board, done)
   const lineCells = new Set(lines.flat())
-  const [cheer, setCheer] = useState(0)
   const prevLines = useRef(null)
   useEffect(() => {
-    // 처음 화면을 열 때는 띄우지 않고, 줄 수가 늘었을 때만 띄운다.
+    // 처음 화면을 열 때는 띄우지 않고, 줄 수가 늘었을 때만 띄운다. 줄 하나가 30점이라 배틀 2등과 같은 크기로 축하한다.
     if (prevLines.current !== null && lines.length > prevLines.current) {
-      setCheer(lines.length)
-      navigator.vibrate?.(200)
-      const timer = setTimeout(() => setCheer(0), 3000)
-      prevLines.current = lines.length
-      return () => clearTimeout(timer)
+      celebrate({ tier: 'silver', title: '빙고!', points: (lines.length - prevLines.current) * SCORE.perLine, sub: `${lines.length}줄 완성` })
     }
     prevLines.current = lines.length
   }, [lines.length])
@@ -436,11 +440,6 @@ function Bingo({ code, teamId, board, done, data, refresh, onCapture, onRemove, 
           })}
         </svg>
       </div>
-      {cheer > 0 && (
-        <div className="bingo-toast" role="status">
-          <span>🎊</span> 빙고! {cheer}줄 완성
-        </div>
-      )}
       <p className="safety">뛰지 않습니다. 사진은 안전한 곳에 멈춰서 찍습니다.</p>
 
       {selected && (
@@ -650,6 +649,7 @@ function BattleAlert({ data, teamId, onOpen }) {
 
   useEffect(() => {
     if (!show) return
+    dismissCelebration() // 앞 문제의 축하 화면이 새 배틀 알림을 가리지 않게 닫는다
     navigator.vibrate?.([200, 100, 200])
     const timer = setInterval(() => setTick((t) => t + 1), 250)
     return () => clearInterval(timer)
@@ -670,7 +670,7 @@ function BattleAlert({ data, teamId, onOpen }) {
         <p className="alert-siren">⚡</p>
         <p className="alert-title">퀴즈 배틀</p>
         <p className="alert-meta">{battleRule(battle)}</p>
-        <p className="countdown">{left > 0 ? left : 'GO'}</p>
+        {left > 0 ? <CountdownNumber quizId={battle.id} sec={left} /> : <p className="countdown">GO</p>}
         <p className="alert-body">{left > 0 ? '초 뒤에 문제가 공개됩니다' : '문제가 공개되었습니다'}</p>
         <button className="primary" onClick={go}>배틀로 가기</button>
       </div>

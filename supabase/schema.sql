@@ -513,7 +513,10 @@ begin
     insert into evm_scores (team_id, game_id, score) values (q.author_team, 'qa:' || q.id || ':' || p_team, (q.points + 1) / 2)
     on conflict (team_id, game_id) do nothing;
   end if;
+  -- first_team: 1등만 배틀에서 늦게 맞혔을 때 가장 먼저 맞힌 팀(화면이 아직 갱신 전이어도 1등 팀을 알린다)
   return json_build_object('ok', v_ok, 'points', v_points, 'rank', v_rank,
+    'first_team', case when q.battle = 'first' and v_rank > 1 then (
+      select team_id from evm_scores where game_id = 'quiz:' || q.id and coalesce(ok, score > 0) order by created_at limit 1) end,
     'answer', case when v_choice then q.answer end);
 end $$;
 

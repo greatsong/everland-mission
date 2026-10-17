@@ -24,11 +24,15 @@ export function useRemote(code, onBadCode, interval = POLL_MS) {
   const [data, setData] = useState(null)
   const [online, setOnline] = useState(true)
 
+  const applied = useRef(0) // 마지막으로 반영한 요청의 시작 시각
   const refresh = useCallback(async () => {
     const startedAt = Date.now()
     try {
       const next = await rpc('evm_state', { p_code: code })
-      setData({ ...next, startedAt })
+      // 늦게 도착한 예전 응답이 새 상태를 덮지 않게 한다(배틀 중에는 3초마다, 답한 뒤에도 바로 받는다).
+      if (startedAt < applied.current) return
+      applied.current = startedAt
+      setData({ ...next, startedAt, receivedAt: Date.now() })
       setOnline(true)
     } catch (err) {
       if (err instanceof BadCodeError) onBadCode()

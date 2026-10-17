@@ -332,9 +332,6 @@ h1, h2, p, figure { margin: 0; }
 .cell.in-line { border-color: #f59f00; border-width: 3px; box-shadow: 0 0 0 2px rgba(245, 159, 0, 0.35); }
 .cell.in-line .check { background: #f59f00; }
 .bingo-banner { margin-bottom: 8px; padding: 9px 12px; border-radius: 12px; background: #fff3bf; border: 1px solid #ffd43b; font-weight: 800; text-align: center; }
-.bingo-toast { position: fixed; left: 50%; top: 38%; transform: translate(-50%, -50%); z-index: 15; padding: 18px 28px; border-radius: 20px; background: #1f2a24; color: #ffd43b; font-size: 26px; font-weight: 900; white-space: nowrap; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35); animation: alert-pop 0.3s ease-out; pointer-events: none; }
-.bingo-toast span { font-size: 30px; }
-@media (prefers-reduced-motion: reduce) { .bingo-toast { animation: none; } }
 
 /* 완료한 지령 */
 .orders-done { background: #ebfbee; border: 1px solid #8ce99a; border-radius: 14px; overflow: hidden; }
@@ -436,33 +433,54 @@ h1, h2, p, figure { margin: 0; }
 .battle-live b { margin-top: 2px; font-size: 15px; }
 .quiz-chip.battle:not(.solved) { border-color: #ffd43b; }
 
-/* 정답 축하(2026-10-17). 배틀 1등(gold)이 가장 크고 2등·3등·보통 정답 순서로 작아진다. rival은 다른 팀이 1등만 배틀을 맞혔을 때 */
-.celebrate { position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgba(0, 0, 0, 0.35); }
-.celebrate.gold { background: radial-gradient(circle at 50% 42%, rgba(255, 212, 59, 0.6), rgba(0, 0, 0, 0.78) 72%); }
-.celebrate.silver { background: radial-gradient(circle at 50% 42%, rgba(222, 226, 230, 0.55), rgba(0, 0, 0, 0.7) 72%); }
-.celebrate.bronze { background: radial-gradient(circle at 50% 42%, rgba(255, 169, 77, 0.45), rgba(0, 0, 0, 0.65) 72%); }
-.celebrate.rival { background: rgba(0, 0, 0, 0.7); }
+/* 정답 축하(2026-10-17, UI/UX 검토 반영 2026-10-18). 1등(gold)이 가장 크고 2등·3등·정답·늦은 정답 순서로 작아진다.
+   rival은 다른 팀이 1등만 배틀을 맞혔을 때 화면을 막지 않는 위쪽 띠다. 화면을 흔들거나 번쩍이거나 계속 도는 효과는 넣지 않는다. */
+.celebrate { position: fixed; inset: 0; z-index: 40; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 20px; background: rgba(0, 0, 0, 0.45); }
+.celebrate.gold { background: radial-gradient(circle at 50% 42%, #fff3bf 0, #ffd43b 30%, #f59f00 70%, #e8590c 100%); }
+.celebrate.gold::before { content: ''; position: absolute; inset: 0; background: repeating-conic-gradient(from 0deg at 50% 42%, rgba(255, 255, 255, 0.22) 0 9deg, transparent 9deg 18deg); pointer-events: none; }
+.celebrate.silver { background: rgba(0, 0, 0, 0.6); }
+.celebrate.bronze { background: rgba(0, 0, 0, 0.55); }
 .confetti { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.celebrate-box { position: relative; max-width: 340px; text-align: center; background: #fff; border-radius: 24px; padding: 20px 28px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35); animation: celebrate-pop 0.45s cubic-bezier(0.2, 1.6, 0.4, 1); }
+.celebrate-box { position: relative; width: min(320px, 100%); text-align: center; background: #fff; border-radius: 24px; padding: 20px 22px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35); animation: celebrate-pop 0.45s cubic-bezier(0.2, 1.6, 0.4, 1); }
+.celebrate-team { display: inline-block; margin-bottom: 6px; padding: 4px 14px; border-radius: 999px; background: var(--team); color: #fff; font-size: 20px; font-weight: 900; }
 .celebrate-icon { font-size: 60px; line-height: 1.1; }
-.celebrate-title { font-size: 32px; font-weight: 900; color: var(--team); word-break: keep-all; }
-.celebrate-sub { margin-top: 6px; font-size: 16px; font-weight: 700; color: var(--ink); line-height: 1.45; word-break: keep-all; }
-.celebrate.gold .celebrate-box { padding: 28px 36px; background: linear-gradient(#fff9db, #ffe066); border: 4px solid #f59f00; }
-.celebrate.gold .celebrate-icon { font-size: 104px; animation: celebrate-bounce 0.6s ease-in-out 4; }
-.celebrate.gold .celebrate-title { font-size: 60px; color: #d9480f; letter-spacing: 2px; }
-.celebrate.gold .celebrate-sub { font-size: 18px; }
+.celebrate-title { font-size: 34px; font-weight: 900; color: #2b8a3e; word-break: keep-all; }
+.celebrate-points { font-size: 28px; font-weight: 900; color: #2b8a3e; font-variant-numeric: tabular-nums; }
+.celebrate-sub { margin-top: 6px; font-size: 17px; font-weight: 700; color: var(--ink); line-height: 1.45; word-break: keep-all; }
+.celebrate-note { margin-top: 4px; font-size: 15px; color: var(--muted); line-height: 1.45; word-break: keep-all; }
+.celebrate-close { position: relative; color: rgba(255, 255, 255, 0.9); font-size: 14px; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5); }
+.celebrate.gold .celebrate-close { color: #5c2d00; text-shadow: none; }
+.celebrate.gold .celebrate-box { padding: 24px 22px 26px; background: linear-gradient(#fff9db, #ffe066); border: 4px solid #f59f00; }
+.celebrate.gold .celebrate-icon { font-size: 100px; animation: celebrate-bounce 0.6s ease-in-out 3; }
+.celebrate.gold .celebrate-title { font-size: 64px; line-height: 1.05; color: #d9480f; letter-spacing: 2px; }
+.celebrate.gold .celebrate-points { font-size: 44px; color: #d9480f; }
 .celebrate.silver .celebrate-box { border: 3px solid #adb5bd; }
 .celebrate.silver .celebrate-icon { font-size: 80px; }
-.celebrate.silver .celebrate-title { font-size: 46px; color: #495057; }
+.celebrate.silver .celebrate-title { font-size: 44px; color: #495057; }
+.celebrate.silver .celebrate-points { font-size: 32px; color: #495057; }
 .celebrate.bronze .celebrate-box { border: 3px solid #e8590c; }
 .celebrate.bronze .celebrate-icon { font-size: 72px; }
-.celebrate.bronze .celebrate-title { font-size: 42px; color: #c2410c; }
-.celebrate.late .celebrate-title { font-size: 26px; }
-.celebrate.rival .celebrate-box { background: #111; border: 3px solid #ffd43b; }
-.celebrate.rival .celebrate-title { font-size: 24px; color: #ffd43b; }
-.celebrate.rival .celebrate-sub { color: #ddd; font-weight: 500; }
+.celebrate.bronze .celebrate-title { font-size: 40px; color: #c2410c; }
+.celebrate.bronze .celebrate-points { font-size: 30px; color: #c2410c; }
+/* 다른 팀이 1등만 배틀을 맞힘: 위쪽 띠, 화면을 막지 않는다 */
+.celebrate.rival { inset: auto 12px auto; top: calc(env(safe-area-inset-top) + 64px); display: block; padding: 0; background: none; pointer-events: none; }
+.celebrate.rival .celebrate-box { width: 100%; max-width: 456px; margin: 0 auto; display: flex; align-items: center; gap: 12px; text-align: left; padding: 12px 16px; background: #111; border: 3px solid #ffd43b; animation: banner-in 0.3s ease-out; }
+.celebrate.rival .celebrate-icon { font-size: 32px; }
+.celebrate.rival .celebrate-title { font-size: 18px; color: #ffd43b; }
+.celebrate.rival .celebrate-sub { margin-top: 2px; font-size: 15px; font-weight: 500; color: #ddd; }
 @keyframes celebrate-pop { 0% { transform: scale(0.3); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
 @keyframes celebrate-bounce { 0%, 100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(-12px) rotate(-8deg); } }
+@keyframes banner-in { 0% { transform: translateY(-20px); opacity: 0; } 100% { transform: translateY(0); opacity: 1; } }
 .answer-form.shake input { animation: answer-shake 0.4s ease-in-out; border-color: #e03131; }
 @keyframes answer-shake { 0%, 100% { transform: translateX(0); } 20%, 60% { transform: translateX(-8px); } 40%, 80% { transform: translateX(8px); } }
-@media (prefers-reduced-motion: reduce) { .celebrate-box, .celebrate-icon, .answer-form.shake input { animation: none !important; } }
+
+/* 카운트다운: 마지막 3초는 빨갛게 커진다(1초에 한 번, 깜빡이지 않음) */
+.card .countdown { color: var(--ink); }
+.countdown.last { color: #e03131; animation: count-pulse 0.3s ease-out; }
+@keyframes count-pulse { 0% { transform: scale(1.35); } 100% { transform: scale(1); } }
+/* 그림 배틀은 화면을 내리지 않아도 입력 칸이 보이게 그림을 조금 작게 */
+.card.battle .quiz-img { max-height: 36dvh; }
+/* 축하 화면을 닫은 뒤에도 남는 결과, 먼저 맞힌 팀 안내 */
+.answer.medal { font-size: 22px; padding: 10px; border-radius: 14px; background: #fff3bf; color: #a35a00; }
+.battle-winner { padding: 10px 12px; border-radius: 12px; background: #111; color: #ffd43b; font-size: 15px; font-weight: 700; line-height: 1.45; word-break: keep-all; }
+@media (prefers-reduced-motion: reduce) { .celebrate-box, .celebrate-icon, .answer-form.shake input, .countdown.last, .celebrate.rival .celebrate-box { animation: none !important; } }

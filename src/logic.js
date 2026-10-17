@@ -80,9 +80,11 @@ export function liveBattle(data) {
 }
 
 // 서버 시각(ms). 화면이 서버 상태를 받은 때의 차이로 휴대폰 시계를 맞춘다(카운트다운용).
+// 서버 시각은 요청을 보낸 때와 받은 때의 가운데쯤에 정해지므로 그 가운데와 비교한다.
 export function serverNow(data) {
   if (!data?.now || !data.startedAt) return Date.now()
-  return Date.now() + (new Date(data.now).getTime() - data.startedAt)
+  const mid = data.receivedAt ? (data.startedAt + data.receivedAt) / 2 : data.startedAt
+  return Date.now() + (new Date(data.now).getTime() - mid)
 }
 
 // 팀 하나의 점수 내역. data는 서버 상태, done은 그 팀의 완료 표시({ [missionId]: 참 })이다.
