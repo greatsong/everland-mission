@@ -435,3 +435,34 @@ h1, h2, p, figure { margin: 0; }
 .battle-live-title { font-size: 18px; font-weight: 900; color: #ffd43b; }
 .battle-live b { margin-top: 2px; font-size: 15px; }
 .quiz-chip.battle:not(.solved) { border-color: #ffd43b; }
+
+/* 정답 축하(2026-10-17). 배틀 1등(gold)이 가장 크고 2등·3등·보통 정답 순서로 작아진다. rival은 다른 팀이 1등만 배틀을 맞혔을 때 */
+.celebrate { position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgba(0, 0, 0, 0.35); }
+.celebrate.gold { background: radial-gradient(circle at 50% 42%, rgba(255, 212, 59, 0.6), rgba(0, 0, 0, 0.78) 72%); }
+.celebrate.silver { background: radial-gradient(circle at 50% 42%, rgba(222, 226, 230, 0.55), rgba(0, 0, 0, 0.7) 72%); }
+.celebrate.bronze { background: radial-gradient(circle at 50% 42%, rgba(255, 169, 77, 0.45), rgba(0, 0, 0, 0.65) 72%); }
+.celebrate.rival { background: rgba(0, 0, 0, 0.7); }
+.confetti { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.celebrate-box { position: relative; max-width: 340px; text-align: center; background: #fff; border-radius: 24px; padding: 20px 28px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35); animation: celebrate-pop 0.45s cubic-bezier(0.2, 1.6, 0.4, 1); }
+.celebrate-icon { font-size: 60px; line-height: 1.1; }
+.celebrate-title { font-size: 32px; font-weight: 900; color: var(--team); word-break: keep-all; }
+.celebrate-sub { margin-top: 6px; font-size: 16px; font-weight: 700; color: var(--ink); line-height: 1.45; word-break: keep-all; }
+.celebrate.gold .celebrate-box { padding: 28px 36px; background: linear-gradient(#fff9db, #ffe066); border: 4px solid #f59f00; }
+.celebrate.gold .celebrate-icon { font-size: 104px; animation: celebrate-bounce 0.6s ease-in-out 4; }
+.celebrate.gold .celebrate-title { font-size: 60px; color: #d9480f; letter-spacing: 2px; }
+.celebrate.gold .celebrate-sub { font-size: 18px; }
+.celebrate.silver .celebrate-box { border: 3px solid #adb5bd; }
+.celebrate.silver .celebrate-icon { font-size: 80px; }
+.celebrate.silver .celebrate-title { font-size: 46px; color: #495057; }
+.celebrate.bronze .celebrate-box { border: 3px solid #e8590c; }
+.celebrate.bronze .celebrate-icon { font-size: 72px; }
+.celebrate.bronze .celebrate-title { font-size: 42px; color: #c2410c; }
+.celebrate.late .celebrate-title { font-size: 26px; }
+.celebrate.rival .celebrate-box { background: #111; border: 3px solid #ffd43b; }
+.celebrate.rival .celebrate-title { font-size: 24px; color: #ffd43b; }
+.celebrate.rival .celebrate-sub { color: #ddd; font-weight: 500; }
+@keyframes celebrate-pop { 0% { transform: scale(0.3); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+@keyframes celebrate-bounce { 0%, 100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(-12px) rotate(-8deg); } }
+.answer-form.shake input { animation: answer-shake 0.4s ease-in-out; border-color: #e03131; }
+@keyframes answer-shake { 0%, 100% { transform: translateX(0); } 20%, 60% { transform: translateX(-8px); } 40%, 80% { transform: translateX(8px); } }
+@media (prefers-reduced-motion: reduce) { .celebrate-box, .celebrate-icon, .answer-form.shake input { animation: none !important; } }

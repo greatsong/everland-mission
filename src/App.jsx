@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { TEAMS, MISSIONS, SCORE } from './data.js'
 import { rpc, BadCodeError, loadSession, saveSession, loadState, saveState, compressPhoto, report, lazyImport } from './store.js'
-import { boardFor, teamScore, doneByTeam, missionInfo, rushRank, completedLines, teacherNames, locationGroups, liveBattle, battleRule, serverNow } from './logic.js'
+import { boardFor, teamScore, doneByTeam, missionInfo, rushRank, completedLines, teacherNames, locationGroups, liveBattle, battleRule, serverNow, battleOrder } from './logic.js'
 import { useRemote, usePhoto, Photo, Ranking, teamsOf, useLocationShare, LocationList, everlandMapUrl, TeamAvatar, teachersOf, teacherMap, withHere, HQ_TEAM, SplitNote, LocateButton } from './shared.jsx'
 import { lazy, Suspense } from 'react'
 import Games from './Games.jsx'
+import { CelebrationLayer, celebrate, resultLook, unlockAudio } from './celebrate.jsx'
 
 const TeamMap = lazy(lazyImport(() => import('./TeamMap.jsx')))
 import Hq from './Hq.jsx'
@@ -148,6 +149,26 @@ function TeamHome({ session, onLeave, onLogout }) {
   const { data, online, refresh } = useRemote(code, onLogout, battleOn ? POLL_BATTLE_MS : tab === 'games' ? POLL_GAMES_MS : undefined)
   useEffect(() => setBattleOn(Boolean(liveBattle(data))), [data])
   const clearFocus = useCallback(() => setFocusQuiz(null), [])
+
+  // 배틀 결과 알림. 우리 팀이 다른 휴대폰으로 맞혔으면 이 휴대폰에서도 축하하고,
+  // 1등만 받는 배틀은 다른 팀이 가장 먼저 맞혔을 때 누가 맞혔는지 알린다. 1분 넘게 지난 결과는 알리지 않는다.
+  useEffect(() => {
+    if (!data) return
+    const now = serverNow(data)
+    for (const q of data.quizzes) {
+      if (!q.battle) continue
+      const order = battleOrder(data, q.id)
+      const mine = order.findIndex((s) => s.team_id === teamId)
+      if (mine >= 0 && now - new Date(order[mine].at) < 60000) {
+        celebrate({ key: `quiz:${q.id}`, ...resultLook(q, order[mine].score, mine + 1, TEAMS.find((t) => t.id === order[0].team_id)?.name) })
+      }
+      const first = order[0]
+      if (q.battle === 'first' && first && first.team_id !== teamId && now - new Date(first.at) < 60000) {
+        const name = TEAMS.find((t) => t.id === first.team_id)?.name || '다른 팀'
+        celebrate({ key: `win:${q.id}`, tier: 'rival', title: `${name}이 가장 먼저 맞혔습니다`, sub: `이번 문제의 점수는 ${name}이 받았습니다. 다음 문제를 기다립니다.` })
+      }
+    }
+  }, [data, teamId])
   const locate = useLocationShare(code, teamId)
   const locatePing = locate.ping
   // 퀴즈에 답할 때도 위치를 보낸다(위치 공유가 켜져 있을 때만).
@@ -305,6 +326,7 @@ function TeamHome({ session, onLeave, onLogout }) {
       {notice && <p className="notice">{notice}</p>}
       <OrderAlert teamId={teamId} orders={data?.orders} onOpen={() => setTab('bingo')} />
       <BattleAlert data={data} teamId={teamId} onOpen={(id) => { setTab('games'); setFocusQuiz(id); window.scrollTo(0, 0) }} />
+      <CelebrationLayer />
       {inbox && (
         <Inbox data={data} teamId={teamId} done={done} onClose={() => setInbox(false)} onGo={() => { setInbox(false); setTab('bingo'); window.scrollTo(0, 0) }} />
       )}
@@ -622,7 +644,9 @@ function BattleAlert({ data, teamId, onOpen }) {
   const now = serverNow(data)
   // 공개 시각이 1분 넘게 지난 배틀(늦게 연 화면)은 알리지 않는다. 퀴즈 탭의 배틀 안내로 들어갈 수 있다.
   const stale = battle?.starts_at && now - new Date(battle.starts_at) > 60000
-  const show = battle && battle.id !== seen && !answered && !stale
+  // 1등만 받는 배틀을 다른 팀이 이미 맞혔으면 배틀 알림 대신 "○팀이 가장 먼저 맞혔습니다"만 보인다.
+  const decided = battle?.battle === 'first' && battleOrder(data, battle.id).length > 0
+  const show = battle && battle.id !== seen && !answered && !stale && !decided
 
   useEffect(() => {
     if (!show) return
@@ -635,6 +659,7 @@ function BattleAlert({ data, teamId, onOpen }) {
   const left = battle.starts_at ? Math.max(0, Math.ceil((new Date(battle.starts_at) - now) / 1000)) : 0
 
   function go() {
+    unlockAudio() // 이 버튼을 누를 때 소리 장치를 깨워 둔다(정답·다른 팀 알림 효과음)
     setSeen(battle.id)
     onOpen(battle.id)
   }

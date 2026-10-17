@@ -3,6 +3,7 @@ import { QUIZ_KINDS, TEAMS } from './data.js'
 import { rpc } from './store.js'
 import { scoreOk, battleOrder, battleRule, serverNow } from './logic.js'
 import { QuizImage } from './shared.jsx'
+import { celebrate, markShown, resultLook, unlockAudio } from './celebrate.jsx'
 
 // 전체 대결 퀴즈. 문제는 본부가 출제하고 서버가 채점한다.
 // 몸으로 말해요(팀 출제)는 2026-10-12에 뺐다. 서버 함수 evm_act_submit은 남아 있다.
@@ -157,6 +158,7 @@ function QuizCard({ code, teamId, quiz, data, result, refresh, onNext }) {
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const [reply, setReply] = useState(null) // 서버 채점 결과
+  const [shake, setShake] = useState(false) // 틀렸을 때 입력 칸을 흔든다
   const sec = useCountdown(data, quiz)
   const done = Boolean(result) || quiz.status === 'closed'
   const isChoice = quiz.kind === 'bible' && Array.isArray(quiz.choices)
@@ -174,13 +176,25 @@ function QuizCard({ code, teamId, quiz, data, result, refresh, onNext }) {
   }, [hidden, sec, quiz.starts_at, refresh])
 
   async function send(value) {
+    unlockAudio() // 누르는 순간에 소리 장치를 깨워야 채점 뒤 효과음이 난다(아이폰)
     setBusy(true)
     setMessage('')
     try {
       const res = await rpc('evm_quiz_answer', { p_code: code, p_team: teamId, p_id: quiz.id, p_text: value, p_hint: hint })
       setReply(res)
+      if (res.ok) {
+        // 1등만 배틀에서 늦게 맞혔으면 1등 팀을 함께 알리고, 같은 문제의 "다른 팀이 맞혔습니다" 알림은 띄우지 않는다.
+        const winner = battleOrder(data, quiz.id).find((s) => s.team_id !== teamId)
+        if (quiz.battle === 'first') markShown(`win:${quiz.id}`)
+        celebrate({ key: `quiz:${quiz.id}`, ...resultLook(quiz, res.points, res.rank, winner && teamName(winner.team_id)) })
+      }
       if (res.ok || isChoice) refresh()
-      else setMessage('정답이 아닙니다. 다시 생각합니다.')
+      else {
+        setMessage('정답이 아닙니다. 다시 생각합니다.')
+        setShake(true)
+        navigator.vibrate?.(60)
+        setTimeout(() => setShake(false), 450)
+      }
     } catch (err) {
       setMessage(errorText(err))
       refresh()
@@ -239,7 +253,7 @@ function QuizCard({ code, teamId, quiz, data, result, refresh, onNext }) {
           {hasHint && !hint && (
             <button className="ghost" onClick={() => setHint(true)}>{hintHalf ? '힌트 보기' : '힌트 보기 (감점 없음)'}</button>
           )}
-          <form className="login answer-form" onSubmit={(e) => { e.preventDefault(); if (text.trim()) send(text) }}>
+          <form className={`login answer-form${shake ? ' shake' : ''}`} onSubmit={(e) => { e.preventDefault(); if (text.trim()) send(text) }}>
             <input value={text} onChange={(e) => setText(e.target.value)} placeholder="정답" aria-label="정답" autoComplete="off" />
             <button className="primary" disabled={busy}>제출</button>
           </form>
