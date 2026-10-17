@@ -80,6 +80,28 @@ async function rpcRead(fn, res) {
   return text ? JSON.parse(text) : null
 }
 
+// 배포 뒤 예전 화면이 열려 있으면 바뀐 화면 파일(지도 등)을 불러오지 못한다(2026-10-12 점검 기록).
+// 그럴 때 화면을 새로 고친다. 계속 실패할 때 끝없이 새로 고치지 않도록 1분에 한 번까지만 한다.
+export function reloadOnce() {
+  try {
+    const last = Number(sessionStorage.getItem('evm:reloaded')) || 0
+    if (Date.now() - last < 60000) return false
+    sessionStorage.setItem('evm:reloaded', String(Date.now()))
+  } catch {
+    return false
+  }
+  location.reload()
+  return true
+}
+
+// 나중에 불러오는 화면(React.lazy)에 사용한다. 불러오지 못하면 새로 고치고, 새로 고치는 동안은 기다린다.
+export const lazyImport = (load) => () =>
+  load().catch((err) => {
+    report('error', `화면 파일 불러오기 실패: ${err.message}`)
+    if (reloadOnce()) return new Promise(() => {})
+    throw err
+  })
+
 // 문제 추천(본부 전용). Supabase 서버 함수가 본부 코드를 확인한 뒤 Claude에 요청한다.
 export async function suggestQuiz(code, kind, topic, count) {
   const res = await fetch(`${URL_BASE}/functions/v1/evm-suggest`, {

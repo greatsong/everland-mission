@@ -143,6 +143,7 @@ declare
   -- 위치(팀 위치, 사진을 찍은 위치)는 본부에만 보낸다. 본부가 허용하면(share_locations) 팀에게도 보낸다.
   v_see_where boolean := evm_login(p_code) = 'admin'
     or coalesce((select value from evm_config where key = 'share_locations'), 'off') = 'on';
+  v_admin boolean := evm_login(p_code) = 'admin';
 begin
   perform evm_require(p_code);
   return json_build_object(
@@ -160,18 +161,22 @@ begin
         'id', id, 'kind', kind, 'body', body, 'points', points, 'rush', rush, 'open', open, 'at', created_at,
         'answer', case when evm_login(p_code) = 'admin' then answer end
       ) order by id desc) from evm_orders), '[]'::json),
+    -- 배틀 문제는 공개 시각(starts_at) 전에는 문제 내용을 팀에게 보내지 않는다. 그림은 evm_quiz_photo로 따로 받는다.
     'quizzes', coalesce((
       select json_agg(json_build_object(
-        'id', id, 'kind', kind, 'body', body, 'choices', choices, 'hint', hint, 'points', points,
-        'status', status, 'author_team', author_team,
-        'answer', case when evm_login(p_code) = 'admin' or status = 'closed' then answer end
+        'id', id, 'kind', kind, 'points', points, 'status', status, 'author_team', author_team,
+        'battle', battle, 'starts_at', starts_at, 'has_photo', photo is not null,
+        'body', case when v_admin or starts_at is null or starts_at <= now() then body end,
+        'choices', case when v_admin or starts_at is null or starts_at <= now() then choices end,
+        'hint', case when v_admin or starts_at is null or starts_at <= now() then hint end,
+        'answer', case when v_admin or status = 'closed' then answer end
       ) order by id) from evm_quizzes
-      where evm_login(p_code) = 'admin' or status in ('open', 'closed', 'pending')), '[]'::json),
+      where v_admin or status in ('open', 'closed', 'pending')), '[]'::json),
     'teams', coalesce((
       select json_agg(json_build_object('team_id', team_id, 'teachers', teachers,
         'photo_at', case when photo is not null then updated_at end)) from evm_teams), '[]'::json),
     'scores', coalesce((
-      select json_agg(json_build_object('team_id', team_id, 'game_id', game_id, 'score', score, 'at', created_at)) from evm_scores), '[]'::json),
+      select json_agg(json_build_object('team_id', team_id, 'game_id', game_id, 'score', score, 'ok', ok, 'at', created_at)) from evm_scores), '[]'::json),
     -- 팀 위치는 본부에만 보낸다. 본부가 허용하면(share_locations) 팀에게도 보낸다.
     'share_locations', coalesce((select value from evm_config where key = 'share_locations'), 'off') = 'on',
     'locations', coalesce((
@@ -315,12 +320,12 @@ begin
   return v_ok;
 end $$;
 
--- 퀴즈. 초성(chosung)·성경(bible)·넌센스(nonsense)는 본부가 출제하고,
+-- 퀴즈. 초성(chosung)·성경(bible)·넌센스(nonsense)·그림(image)은 본부가 출제하고,
 -- 몸으로 말해요(act)는 팀이 사진과 정답을 내면 본부가 승인해 출제한다.
 -- status: pending(승인 대기) → draft(보관) → open(출제) → closed(마감)
 create table if not exists evm_quizzes (
   id bigint generated always as identity primary key,
-  kind text not null check (kind in ('chosung', 'bible', 'nonsense', 'act')),
+  kind text not null check (kind in ('chosung', 'bible', 'nonsense', 'act', 'image')),
   body text not null,
   choices json,
   answer text not null,
@@ -332,24 +337,60 @@ create table if not exists evm_quizzes (
   created_at timestamptz not null default now()
 );
 alter table evm_quizzes enable row level security;
+-- 그림 퀴즈와 퀴즈 배틀(2026-10-17). 그림 퀴즈는 photo 칸(몸으로 말해요와 같은 칸)에 그림을 둔다.
+alter table evm_quizzes drop constraint if exists evm_quizzes_kind_check;
+alter table evm_quizzes add constraint evm_quizzes_kind_check check (kind in ('chosung', 'bible', 'nonsense', 'act', 'image'));
+-- battle: 선착순 방식. rush는 맞힌 순서대로 30·20·10점, 그 뒤 5점. first는 1등 팀만 문제 점수를 받는다. null이면 보통 문제
+alter table evm_quizzes add column if not exists battle text check (battle in ('rush', 'first'));
+-- starts_at: 배틀 문제를 공개하는 시각. 본부가 배틀을 시작하면 10초나 15초 뒤로 정한다
+alter table evm_quizzes add column if not exists starts_at timestamptz;
+-- 점수 기록의 정답 여부. 1등만 받는 배틀에서 늦게 맞힌 팀은 0점이지만 정답으로 남긴다(null인 예전 기록은 점수가 있으면 정답)
+alter table evm_scores add column if not exists ok boolean;
 
 create or replace function evm_norm(p_text text) returns text
 language sql immutable as $$
   select regexp_replace(lower(coalesce(p_text, '')), '\s', '', 'g')
 $$;
 
+-- 문제 출제(본부). 만든 문제 번호를 돌려준다. 그림 퀴즈는 그림(긴 변 1024px JPEG)이 있어야 한다.
+-- 배틀 문제는 보관 상태로 넣고, evm_quiz_battle_start로 카운트다운을 시작한다.
+drop function if exists evm_quiz_add(text, text, text, json, text, text, int, boolean);
 create or replace function evm_quiz_add(
-  p_code text, p_kind text, p_body text, p_choices json, p_answer text, p_hint text, p_points int, p_open boolean
-) returns void
+  p_code text, p_kind text, p_body text, p_choices json, p_answer text, p_hint text, p_points int, p_open boolean,
+  p_photo text default null, p_battle text default null
+) returns bigint
 language plpgsql security definer set search_path = public as $$
+declare v_id bigint;
 begin
   perform evm_require(p_code, true);
   if p_kind = 'act' or coalesce(btrim(p_answer), '') = '' or coalesce(btrim(p_body), '') = '' then
     raise exception 'EVM_BAD_QUIZ' using errcode = 'P0001';
   end if;
-  insert into evm_quizzes (kind, body, choices, answer, hint, points, status)
+  if p_kind = 'image' and (p_photo is null or p_photo not like 'data:image/jpeg;base64,%' or length(p_photo) > 700000) then
+    raise exception 'EVM_BAD_PHOTO' using errcode = 'P0001';
+  end if;
+  insert into evm_quizzes (kind, body, choices, answer, hint, points, status, photo, battle)
   values (p_kind, left(btrim(p_body), 300), p_choices, btrim(p_answer), nullif(btrim(coalesce(p_hint, '')), ''), p_points,
-          case when p_open then 'open' else 'draft' end);
+          case when p_open and p_battle is null then 'open' else 'draft' end,
+          case when p_kind = 'image' then p_photo end, p_battle)
+  returning id into v_id;
+  return v_id;
+end $$;
+
+-- 배틀 시작(본부). 열려 있는 다른 배틀 문제는 마감하고, p_seconds초 뒤에 이 문제를 공개한다.
+-- 공개 전에는 팀에게 문제 내용과 그림을 보내지 않고 답도 받지 않는다(evm_state, evm_quiz_photo, evm_quiz_answer).
+create or replace function evm_quiz_battle_start(p_code text, p_id bigint, p_seconds int) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform evm_require(p_code, true);
+  if p_seconds not between 0 and 60 then
+    raise exception 'EVM_BAD_SECONDS' using errcode = 'P0001';
+  end if;
+  if not exists (select 1 from evm_quizzes where id = p_id and battle is not null) then
+    raise exception 'EVM_BAD_QUIZ' using errcode = 'P0001';
+  end if;
+  update evm_quizzes set status = 'closed' where battle is not null and status = 'open' and id <> p_id;
+  update evm_quizzes set status = 'open', starts_at = now() + make_interval(secs => p_seconds) where id = p_id;
 end $$;
 
 -- 기본 문제 묶음을 보관 상태로 넣는다. p_items: [{kind, body, choices, answer, hint}]
@@ -375,7 +416,7 @@ create or replace function evm_quiz_open_all(p_code text, p_kind text) returns v
 language plpgsql security definer set search_path = public as $$
 begin
   perform evm_require(p_code, true);
-  update evm_quizzes set status = 'open' where kind = p_kind and status = 'draft';
+  update evm_quizzes set status = 'open' where kind = p_kind and status = 'draft' and battle is null;
 end $$;
 
 create or replace function evm_quiz_delete(p_code text, p_id bigint) returns void
@@ -409,19 +450,25 @@ language plpgsql stable security definer set search_path = public as $$
 begin
   perform evm_require(p_code);
   return (select photo from evm_quizzes
-          where id = p_id and (status in ('open', 'closed') or evm_login(p_code) = 'admin'));
+          where id = p_id and (evm_login(p_code) = 'admin'
+            or (status in ('open', 'closed') and (starts_at is null or starts_at <= now()))));
 end $$;
 
 -- 답안 제출과 채점. 객관식은 한 번만, 나머지는 맞힐 때까지 낼 수 있다.
--- 초성 퀴즈는 힌트를 보면 절반 점수. 몸으로 말해요는 맞힌 팀마다 출제 팀도 절반 점수를 받는다.
+-- 초성 퀴즈는 힌트를 보면 절반 점수(그림 퀴즈의 힌트는 감점이 없다). 몸으로 말해요는 맞힌 팀마다 출제 팀도 절반 점수를 받는다.
+-- 배틀 문제는 맞힌 순서(서버가 답을 받은 순서)로 점수를 정한다. rush는 30·20·10점, 그 뒤 5점. first는 1등만 문제 점수.
 create or replace function evm_quiz_answer(p_code text, p_team int, p_id bigint, p_text text, p_hint boolean) returns json
 language plpgsql security definer set search_path = public as $$
-declare q evm_quizzes%rowtype; v_ok boolean; v_choice boolean; v_points int := 0;
+declare q evm_quizzes%rowtype; v_ok boolean; v_choice boolean; v_points int := 0; v_rank int;
 begin
   perform evm_require(p_code);
-  select * into q from evm_quizzes where id = p_id and status = 'open';
+  -- 문제 행을 잠가 같은 문제의 답안을 하나씩 처리한다(배틀 순위가 겹치지 않게).
+  select * into q from evm_quizzes where id = p_id and status = 'open' for update;
   if not found then
     raise exception 'EVM_QUIZ_CLOSED' using errcode = 'P0001';
+  end if;
+  if q.starts_at > now() then
+    raise exception 'EVM_QUIZ_NOT_STARTED' using errcode = 'P0001';
   end if;
   if q.author_team = p_team then
     raise exception 'EVM_OWN_QUIZ' using errcode = 'P0001';
@@ -444,17 +491,29 @@ begin
     );
   end if;
   if v_ok then
-    v_points := case when q.kind = 'chosung' and p_hint then (q.points + 1) / 2 else q.points end;
+    if q.battle is not null then
+      v_rank := 1 + (select count(*) from evm_scores where game_id = 'quiz:' || q.id and coalesce(ok, score > 0));
+      v_points := case
+        when q.battle = 'first' then case when v_rank = 1 then q.points else 0 end
+        else case v_rank when 1 then 30 when 2 then 20 when 3 then 10 else 5 end
+      end;
+    else
+      v_points := q.points;
+    end if;
+    if q.kind = 'chosung' and p_hint then
+      v_points := (v_points + 1) / 2;
+    end if;
   end if;
+  -- 기록 시각은 잠금을 얻은 뒤의 실제 시각(clock_timestamp)으로 남겨, 화면의 맞힌 순서가 순위와 같게 한다.
   if v_ok or v_choice then
-    insert into evm_scores (team_id, game_id, score) values (p_team, 'quiz:' || q.id, v_points)
+    insert into evm_scores (team_id, game_id, score, ok, created_at) values (p_team, 'quiz:' || q.id, v_points, v_ok, clock_timestamp())
     on conflict (team_id, game_id) do nothing;
   end if;
   if v_ok and q.author_team is not null then
     insert into evm_scores (team_id, game_id, score) values (q.author_team, 'qa:' || q.id || ':' || p_team, (q.points + 1) / 2)
     on conflict (team_id, game_id) do nothing;
   end if;
-  return json_build_object('ok', v_ok, 'points', v_points,
+  return json_build_object('ok', v_ok, 'points', v_points, 'rank', v_rank,
     'answer', case when v_choice then q.answer end);
 end $$;
 
@@ -690,7 +749,8 @@ grant execute on function
   evm_share_locations(text, boolean), evm_tracks(text),
   evm_team_set(text, int, text, text), evm_team_photo(text, int),
   evm_report(int, text, text, text), evm_events_list(text), evm_events_clear(text),
-  evm_quiz_add(text, text, text, json, text, text, int, boolean), evm_quiz_seed(text, json), evm_quiz_set(text, bigint, text),
+  evm_quiz_add(text, text, text, json, text, text, int, boolean, text, text), evm_quiz_battle_start(text, bigint, int),
+  evm_quiz_seed(text, json), evm_quiz_set(text, bigint, text),
   evm_quiz_open_all(text, text), evm_quiz_delete(text, bigint), evm_act_submit(text, int, text, text),
   evm_quiz_photo(text, bigint), evm_quiz_answer(text, int, bigint, text, boolean),
   evm_order(text, text, text, text, int, boolean), evm_order_close(text, bigint), evm_answer(text, int, bigint, text)

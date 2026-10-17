@@ -409,3 +409,29 @@ h1, h2, p, figure { margin: 0; }
 /* 휴대폰 너비에서 퀴즈 출제 칸이 화면 밖으로 넘치지 않게 */
 .composer-form, .composer-preview { min-width: 0; }
 .field input, .field textarea { width: 100%; min-width: 0; box-sizing: border-box; }
+
+/* 그림 퀴즈(2026-10-17). 그림을 누르면 화면 전체로 크게 본다. */
+.quiz-img-btn { display: block; width: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; }
+.quiz-img { display: block; width: 100%; max-height: 46dvh; object-fit: contain; border-radius: 12px; background: var(--bg); }
+.quiz-img.photo-wait { aspect-ratio: 1; max-height: 46dvh; }
+.quiz-thumb { flex: none; width: 72px; height: 72px; object-fit: cover; border-radius: 10px; background: var(--bg); font-size: 26px; aspect-ratio: auto; }
+.zoom-back { position: fixed; inset: 0; z-index: 30; background: rgba(0, 0, 0, 0.92); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 12px; }
+.zoom-back img { max-width: 100%; max-height: 88dvh; object-fit: contain; }
+.zoom-back p { color: #bbb; font-size: 13px; }
+.photo-pick { width: 100%; max-height: 220px; object-fit: contain; border-radius: 12px; background: var(--bg); }
+.order-list li.has-thumb { flex-direction: row; gap: 12px; align-items: flex-start; }
+.order-list li.has-thumb > div { flex: 1; min-width: 0; }
+
+/* 퀴즈 배틀: 카운트다운, 맞힌 순서, 진행 중 안내 */
+.battle-tag { align-self: center; display: inline-block; padding: 3px 12px; border-radius: 999px; background: #fff3bf; color: #a35a00; font-weight: 800; font-size: 14px; }
+.order-meta .battle-tag { font-size: 12px; padding: 1px 8px; }
+.countdown { font-size: 72px; font-weight: 900; line-height: 1; color: #ffd43b; font-variant-numeric: tabular-nums; }
+.card .countdown { color: var(--team); }
+.battle-order { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; text-align: left; }
+.battle-order li { display: flex; align-items: baseline; gap: 8px; padding: 6px 10px; border-radius: 10px; background: var(--bg); font-size: 15px; }
+.battle-order li.mine { background: var(--team); color: #fff; }
+.battle-order li small { margin-left: auto; font-size: 13px; opacity: 0.8; }
+.battle-live { width: 100%; display: flex; flex-direction: column; gap: 4px; text-align: left; margin: 4px 0 12px; padding: 14px 16px; border-radius: 16px; background: #111; color: #fff; border: 2px solid #ffd43b; font-size: 14px; }
+.battle-live-title { font-size: 18px; font-weight: 900; color: #ffd43b; }
+.battle-live b { margin-top: 2px; font-size: 15px; }
+.quiz-chip.battle:not(.solved) { border-color: #ffd43b; }

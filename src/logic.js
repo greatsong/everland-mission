@@ -1,4 +1,4 @@
-import { MISSIONS, TEAMS, SCORE } from './data.js'
+import { MISSIONS, TEAMS, SCORE, BATTLES } from './data.js'
 
 const SIZE = 4
 
@@ -56,6 +56,33 @@ export function rushRank(data, orderId, teamId) {
     .filter((s) => s.mission_id === `order:${orderId}`)
     .sort((a, b) => new Date(a.first_at || a.at) - new Date(b.first_at || b.at))
   return subs.findIndex((s) => s.team_id === teamId) + 1
+}
+
+// 퀴즈 점수 기록이 정답인지. 1등만 받는 배틀에서 늦게 맞힌 팀은 0점이지만 정답이다(ok). 예전 기록은 점수로 판단한다.
+export const scoreOk = (s) => s.ok ?? s.score > 0
+
+// 퀴즈 배틀에서 맞힌 순서. 서버가 답을 받은 시각 순서이며 [{ team_id, score, at }]를 돌려준다.
+export function battleOrder(data, quizId) {
+  return (data?.scores || [])
+    .filter((s) => s.game_id === `quiz:${quizId}` && scoreOk(s))
+    .sort((a, b) => new Date(a.at) - new Date(b.at))
+}
+
+// 배틀 규칙 한 줄(예: "선착순 · 맞힌 순서대로 30·20·10점, 그 뒤는 5점")
+export function battleRule(quiz) {
+  const b = BATTLES.find((x) => x.id === quiz.battle)
+  return b ? `${b.title} · ${b.rule(quiz.points)}` : ''
+}
+
+// 지금 진행 중인 배틀 문제(카운트다운 중이거나 공개된 것). 본부는 한 번에 하나만 연다.
+export function liveBattle(data) {
+  return (data?.quizzes || []).filter((q) => q.battle && q.status === 'open').sort((a, b) => b.id - a.id)[0] || null
+}
+
+// 서버 시각(ms). 화면이 서버 상태를 받은 때의 차이로 휴대폰 시계를 맞춘다(카운트다운용).
+export function serverNow(data) {
+  if (!data?.now || !data.startedAt) return Date.now()
+  return Date.now() + (new Date(data.now).getTime() - data.startedAt)
 }
 
 // 팀 하나의 점수 내역. data는 서버 상태, done은 그 팀의 완료 표시({ [missionId]: 참 })이다.

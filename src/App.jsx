@@ -1,14 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { TEAMS, MISSIONS, SCORE } from './data.js'
-import { rpc, BadCodeError, loadSession, saveSession, loadState, saveState, compressPhoto, report } from './store.js'
-import { boardFor, teamScore, doneByTeam, missionInfo, rushRank, completedLines, teacherNames, locationGroups } from './logic.js'
+import { rpc, BadCodeError, loadSession, saveSession, loadState, saveState, compressPhoto, report, lazyImport } from './store.js'
+import { boardFor, teamScore, doneByTeam, missionInfo, rushRank, completedLines, teacherNames, locationGroups, liveBattle, battleRule, serverNow } from './logic.js'
 import { useRemote, usePhoto, Photo, Ranking, teamsOf, useLocationShare, LocationList, everlandMapUrl, TeamAvatar, teachersOf, teacherMap, withHere, HQ_TEAM, SplitNote, LocateButton } from './shared.jsx'
 import { lazy, Suspense } from 'react'
 import Games from './Games.jsx'
 
-const TeamMap = lazy(() => import('./TeamMap.jsx'))
+const TeamMap = lazy(lazyImport(() => import('./TeamMap.jsx')))
 import Hq from './Hq.jsx'
 import Show from './Show.jsx'
+
+// 서버 상태를 받아 오는 간격(ms). 퀴즈 배틀이 열려 있으면 3초, 퀴즈 대결 탭을 보고 있으면 5초, 그 밖에는 15초.
+// 배틀은 10초나 15초 카운트다운 뒤에 공개되므로, 퀴즈 탭을 열어 둔 팀은 공개 전에 시작을 알게 된다.
+const POLL_BATTLE_MS = 3000
+const POLL_GAMES_MS = 5000
 
 const TABS = [
   { id: 'bingo', label: '빙고', icon: '🎯' },
@@ -138,8 +143,18 @@ function TeamHome({ session, onLeave, onLogout }) {
   const [tab, setTab] = useState('bingo')
   const [notice, setNotice] = useState('')
   const [inbox, setInbox] = useState(false)
-  const { data, online, refresh } = useRemote(code, onLogout)
+  const [battleOn, setBattleOn] = useState(false) // 진행 중인 배틀이 있는지(받아 오는 간격을 줄인다)
+  const [focusQuiz, setFocusQuiz] = useState(null) // 배틀 알림에서 고른 문제
+  const { data, online, refresh } = useRemote(code, onLogout, battleOn ? POLL_BATTLE_MS : tab === 'games' ? POLL_GAMES_MS : undefined)
+  useEffect(() => setBattleOn(Boolean(liveBattle(data))), [data])
+  const clearFocus = useCallback(() => setFocusQuiz(null), [])
   const locate = useLocationShare(code, teamId)
+  const locatePing = locate.ping
+  // 퀴즈에 답할 때도 위치를 보낸다(위치 공유가 켜져 있을 때만).
+  const refreshGames = useCallback(() => {
+    locatePing()
+    refresh()
+  }, [locatePing, refresh])
 
   // 접속 기록(어느 팀이 어떤 기기와 브라우저로 들어왔는지)
   useEffect(() => {
@@ -289,6 +304,7 @@ function TeamHome({ session, onLeave, onLogout }) {
       {data?.notice?.body && <p className="hq-notice">📢 {data.notice.body}</p>}
       {notice && <p className="notice">{notice}</p>}
       <OrderAlert teamId={teamId} orders={data?.orders} onOpen={() => setTab('bingo')} />
+      <BattleAlert data={data} teamId={teamId} onOpen={(id) => { setTab('games'); setFocusQuiz(id); window.scrollTo(0, 0) }} />
       {inbox && (
         <Inbox data={data} teamId={teamId} done={done} onClose={() => setInbox(false)} onGo={() => { setInbox(false); setTab('bingo'); window.scrollTo(0, 0) }} />
       )}
@@ -298,7 +314,7 @@ function TeamHome({ session, onLeave, onLogout }) {
         {tab === 'bingo' && (
           <Bingo code={code} teamId={teamId} board={board} done={done} data={data} refresh={() => { locate.ping(); refresh() }} onCapture={capture} onRemove={remove} setNotice={setNotice} />
         )}
-        {tab === 'games' && <Games code={code} teamId={teamId} data={data} refresh={() => { locate.ping(); refresh() }} />}
+        {tab === 'games' && <Games code={code} teamId={teamId} data={data} refresh={refreshGames} focus={focusQuiz} onFocused={clearFocus} />}
         {tab === 'together' && <Together code={code} data={data} teamId={teamId} refresh={refresh} />}
         {tab === 'map' && <MapTab code={code} data={data} teamId={teamId} locate={locate} />}
       </main>
@@ -592,6 +608,46 @@ function OrderAlert({ teamId, orders, onOpen }) {
         <p className="alert-meta">{orderLabel(newest)}</p>
         <p className="alert-body">{newest.body}</p>
         <button className="primary" onClick={close}>확인</button>
+      </div>
+    </div>
+  )
+}
+
+// 퀴즈 배틀이 시작되면 화면 전체로 한 번 알린다. 카운트다운을 함께 보여 주고, 누르면 그 문제로 간다.
+function BattleAlert({ data, teamId, onOpen }) {
+  const battle = liveBattle(data)
+  const [seen, setSeen] = useState(0) // 이 화면에서 이미 확인한 배틀 문제 번호
+  const [, setTick] = useState(0) // 카운트다운을 다시 그리기 위한 값
+  const answered = battle && data.scores.some((s) => s.team_id === teamId && s.game_id === `quiz:${battle.id}`)
+  const now = serverNow(data)
+  // 공개 시각이 1분 넘게 지난 배틀(늦게 연 화면)은 알리지 않는다. 퀴즈 탭의 배틀 안내로 들어갈 수 있다.
+  const stale = battle?.starts_at && now - new Date(battle.starts_at) > 60000
+  const show = battle && battle.id !== seen && !answered && !stale
+
+  useEffect(() => {
+    if (!show) return
+    navigator.vibrate?.([200, 100, 200])
+    const timer = setInterval(() => setTick((t) => t + 1), 250)
+    return () => clearInterval(timer)
+  }, [show])
+
+  if (!show) return null
+  const left = battle.starts_at ? Math.max(0, Math.ceil((new Date(battle.starts_at) - now) / 1000)) : 0
+
+  function go() {
+    setSeen(battle.id)
+    onOpen(battle.id)
+  }
+
+  return (
+    <div className="alert-back">
+      <div className="alert">
+        <p className="alert-siren">⚡</p>
+        <p className="alert-title">퀴즈 배틀</p>
+        <p className="alert-meta">{battleRule(battle)}</p>
+        <p className="countdown">{left > 0 ? left : 'GO'}</p>
+        <p className="alert-body">{left > 0 ? '초 뒤에 문제가 공개됩니다' : '문제가 공개되었습니다'}</p>
+        <button className="primary" onClick={go}>배틀로 가기</button>
       </div>
     </div>
   )

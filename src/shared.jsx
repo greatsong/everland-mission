@@ -19,7 +19,8 @@ export function teamsOf(data) {
 }
 
 // 서버 상태를 주기적으로 받아 온다. 화면이 다시 보일 때도 받아 온다.
-export function useRemote(code, onBadCode) {
+// interval: 받아 오는 간격(ms). 퀴즈 배틀 중에는 팀 화면이 더 자주 받아 온다(App.jsx).
+export function useRemote(code, onBadCode, interval = POLL_MS) {
   const [data, setData] = useState(null)
   const [online, setOnline] = useState(true)
 
@@ -37,14 +38,14 @@ export function useRemote(code, onBadCode) {
 
   useEffect(() => {
     refresh()
-    const timer = setInterval(refresh, POLL_MS)
+    const timer = setInterval(refresh, interval)
     const onVisible = () => document.visibilityState === 'visible' && refresh()
     document.addEventListener('visibilitychange', onVisible)
     return () => {
       clearInterval(timer)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [refresh])
+  }, [refresh, interval])
 
   return { data, online, refresh }
 }
@@ -78,6 +79,45 @@ export function Photo({ code, sub, alt, className }) {
   const src = usePhoto(code, sub.team_id, sub.mission_id, sub.at)
   if (!src) return <div className={`photo-wait ${className || ''}`}>사진을 불러오는 중입니다</div>
   return <img className={className} src={src} alt={alt} />
+}
+
+// 퀴즈 그림. 그림은 바뀌지 않으므로 문제 번호별로 한 번만 받는다.
+// 배틀 문제는 공개 시각 전에는 서버가 그림을 주지 않으므로(null) 기억하지 않고 다음에 다시 받는다.
+const quizPhotos = new Map()
+
+export function QuizImage({ code, quiz, small = false }) {
+  const [src, setSrc] = useState(() => quizPhotos.get(quiz.id) || null)
+  const [zoom, setZoom] = useState(false)
+  const ready = quiz.body != null // 배틀 문제가 공개되면 문제 내용이 함께 온다
+  useEffect(() => {
+    if (src || !ready) return
+    let alive = true
+    rpc('evm_quiz_photo', { p_code: code, p_id: quiz.id })
+      .then((photo) => {
+        if (!photo) return
+        quizPhotos.set(quiz.id, photo)
+        if (alive) setSrc(photo)
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [code, quiz.id, ready, src])
+  if (!src) return <div className={small ? 'quiz-thumb photo-wait' : 'quiz-img photo-wait'}>{ready ? '그림을 불러오는 중입니다' : '🖼️'}</div>
+  if (small) return <img className="quiz-thumb" src={src} alt="그림 퀴즈" />
+  return (
+    <>
+      <button type="button" className="quiz-img-btn" onClick={() => setZoom(true)} aria-label="그림 크게 보기">
+        <img className="quiz-img" src={src} alt="그림 퀴즈" />
+      </button>
+      {zoom && (
+        <div className="zoom-back" onClick={() => setZoom(false)} role="dialog" aria-label="크게 본 그림">
+          <img src={src} alt="그림 퀴즈 크게 보기" />
+          <p>화면을 누르면 닫힙니다</p>
+        </div>
+      )}
+    </>
+  )
 }
 
 export const teachersOf = (data, teamId) => data.teams?.find((t) => t.team_id === teamId)?.teachers || ''
@@ -253,7 +293,7 @@ export function useLocationShare(code, teamId) {
           report('geo', `위치 실패 code=${err.code} ${err.message}`)
           if (!alive) return
           setSending(false)
-          setError(err.code === 1 ? '위치 권한이 꺼져 있습니다. 브라우저 설정에서 위치를 허용합니다.' : '위치를 찾지 못했습니다.')
+          setError(err.code === 1 ? geoDeniedText() : '위치를 찾지 못했습니다.')
         },
         { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 },
       )
@@ -298,6 +338,22 @@ export function useLocationShare(code, teamId) {
   )
 
   return { on, toggle, here, error, ping, positionNow, holder, setHolder, lastSent, sending }
+}
+
+// 위치 권한이 꺼졌을 때 다시 켜는 방법. 브라우저와 기기마다 경로가 다르다(2026-10-17 점검 기록: 본부 아이폰 크롬에서 거부).
+// 선생님들은 대부분 카카오톡 안 브라우저로 들어온다.
+function geoDeniedText(ua = navigator.userAgent) {
+  const ios = /iPhone|iPad/.test(ua)
+  const head = '위치 권한이 꺼져 있습니다.'
+  const tail = '바꾼 뒤 이 화면을 닫았다가 다시 엽니다.'
+  if (/KAKAOTALK/i.test(ua)) {
+    return ios
+      ? `${head} 아이폰 설정에서 카카오톡 > 위치를 "앱을 사용하는 동안"으로 ${tail}`
+      : `${head} 휴대폰 설정 > 애플리케이션 > 카카오톡 > 권한 > 위치를 "앱 사용 중에만 허용"으로 ${tail}`
+  }
+  if (ios && /CriOS/.test(ua)) return `${head} 아이폰 설정에서 Chrome > 위치를 "앱을 사용하는 동안"으로 ${tail}`
+  if (ios) return `${head} 아이폰 설정 > 개인정보 보호 및 보안 > 위치 서비스 > Safari 웹 사이트를 "앱을 사용하는 동안"으로 ${tail}`
+  return `${head} 주소창 왼쪽의 사이트 정보(자물쇠) 표시 > 권한 > 위치를 허용으로 ${tail}`
 }
 
 // 📍 위치 버튼: 마지막으로 보낸 시각을 보여 주고, 누르면 바로 보낸다. 위치 공유가 꺼져 있으면 onOff를 부른다.
