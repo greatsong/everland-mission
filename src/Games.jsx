@@ -11,7 +11,7 @@ import { celebrate, markShown, resultLook, unlockAudio, countdownSound, answerin
 
 const ERRORS = {
   EVM_QUIZ_CLOSED: '마감된 문제입니다.',
-  EVM_QUIZ_DONE: '이미 답한 문제입니다.',
+  EVM_QUIZ_DONE: '우리 팀이 이미 답한 문제입니다.', // 같은 팀 다른 휴대폰이 먼저 답했을 때(버스에서는 팀원 8명 중 한 명만 기록된다)
   EVM_QUIZ_NOT_STARTED: '아직 공개되지 않은 문제입니다.',
   EVM_BAD_PLAYER: '입장 정보가 없습니다. 위쪽 팀 이름을 눌러 다시 입장합니다.',
 }
