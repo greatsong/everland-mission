@@ -3,6 +3,7 @@ import { TEAMS, MISSIONS, QUIZ_KINDS, SEED_QUIZ, BATTLES, BATTLE_SECONDS, toChos
 import { rpc, suggestQuiz, compressPhoto, lazyImport } from './store.js'
 import { doneByTeam, missionInfo, rushRank, locationGroups, agoText, scoreOk, battleOrder, battleRule, serverNow, busList, busRanking, currentBusQuestion, josa } from './logic.js'
 import qrcode from 'qrcode-generator'
+import { MvpList } from './Bus.jsx'
 import { useRemote, Photo, Ranking, teamsOf, LocationList, useLocationShare, teacherMap, withHere, HQ_TEAM, SplitNote, LocateButton, QuizImage } from './shared.jsx'
 
 const TeamMap = lazy(lazyImport(() => import('./TeamMap.jsx')))
@@ -813,6 +814,7 @@ function BusBoard({ code, data, teams, run }) {
               <b>{rows.filter((x) => x.points > r.points).length + 1}</b><span className="tn" style={{ background: r.team.color }}>{r.team.name}</span><b>{r.points}점</b>
             </div>
           ))}
+          <MvpList data={data} teams={teams} />
           <BusQuizEntry data={data} run={run} />
           <h3>입장한 사람 {players.length}명</h3>
           {teams.map((t) => {

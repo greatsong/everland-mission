@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { QUIZ_KINDS, TEAMS } from './data.js'
 import { rpc } from './store.js'
 import { scoreOk, battleOrder, battleRule, serverNow } from './logic.js'
@@ -179,6 +179,7 @@ export function BattleOrder({ data, quiz, teamId }) {
 // onBadPlayer: 입장 정보가 없을 때(본부가 내보냈거나 기록을 지움) 부른다. 버스 화면은 입장 화면으로 돌아간다.
 export function QuizCard({ code, teamId, quiz, data, result, refresh, onNext, who, onBadPlayer }) {
   const [text, setText] = useState('')
+  const topRef = useRef(null) // 그림과 문제(입력할 때 화면 위쪽으로 올린다)
   const [hint, setHint] = useState(false)
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
@@ -280,8 +281,10 @@ export function QuizCard({ code, teamId, quiz, data, result, refresh, onNext, wh
           {hintHalf && hasHint && !done && ` · 힌트를 보면 ${Math.ceil(quiz.points / 2)}점`}
         </p>
       )}
-      {quiz.kind === 'image' && <QuizImage code={code} quiz={quiz} />}
-      <p className={quiz.kind === 'chosung' ? 'big' : isOx ? 'question ox-q' : 'question'}>{quiz.body}</p>
+      <div className="quiz-top" ref={topRef}>
+        {quiz.kind === 'image' && <QuizImage code={code} quiz={quiz} />}
+        <p className={quiz.kind === 'chosung' ? 'big' : isOx ? 'question ox-q' : 'question'}>{quiz.body}</p>
+      </div>
       {hasHint && (hint || done) && <p className="hint">힌트: {quiz.hint}</p>}
 
       {oneShot && !done && (
@@ -320,7 +323,8 @@ export function QuizCard({ code, teamId, quiz, data, result, refresh, onNext, wh
             <button className="ghost" onClick={() => setHint(true)}>{hintHalf ? '힌트 보기' : '힌트 보기 (감점 없음)'}</button>
           )}
           <form className={`login answer-form${shake ? ' shake' : ''}`} onSubmit={(e) => { e.preventDefault(); if (text.trim()) send(text) }}>
-            <input value={text} onChange={(e) => setText(e.target.value)} placeholder="정답" aria-label="정답" autoComplete="off" />
+            <input value={text} onChange={(e) => setText(e.target.value)} placeholder="정답" aria-label="정답" autoComplete="off"
+              onFocus={() => setTimeout(() => topRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 350)} />
             <button className="primary" disabled={busy}>{busy ? '채점 중입니다' : '제출'}</button>
           </form>
           <p className="hint">띄어쓰기는 상관없습니다. 맞힐 때까지 다시 낼 수 있습니다.</p>

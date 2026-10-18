@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { TEAMS } from './data.js'
 import { rpc, report, QUIZ_CLOSED_TEXT } from './store.js'
 import { useRemote, teamsOf, deviceId, prefetchQuizPhoto, useTeamsView } from './shared.jsx'
-import { teacherNames, teacherLabel, liveBattle, battleOrder, serverNow, busRanking, busPoints, currentBusQuestion, busList, josa } from './logic.js'
+import { teacherNames, teacherLabel, liveBattle, battleOrder, serverNow, busRanking, busPoints, currentBusQuestion, busList, josa, busMvp } from './logic.js'
 import { QuizCard, answerOf } from './Games.jsx'
 import { CelebrationLayer, celebrate, mateLook, markShown, answering } from './celebrate.jsx'
 
@@ -218,7 +218,32 @@ function OtProgress({ data, quiz, teamId }) {
   )
 }
 
-// 6. 결과: 본부가 입장을 닫으면 나온다. 마지막으로 받은 상태로 시상대를 그린다.
+// MVP 상위 5명(결과 화면과 본부 진행판). 팀 대항에서 맞혀 받은 점수 합의 순서다(logic.js의 busMvp).
+export function MvpList({ data, teams }) {
+  const { rows, more } = busMvp(data)
+  if (!rows.length) return null
+  return (
+    <div className="card mvp">
+      <p className="mvp-title">🌟 MVP TOP 5</p>
+      <ol className="mvp-list">
+        {rows.map((p) => {
+          const team = teams.find((t) => t.id === p.teamId)
+          return (
+            <li key={p.key} className={p.place === 1 ? 'first' : ''}>
+              <span className="mvp-rank">{['🥇', '🥈', '🥉'][p.place - 1] || p.place}</span>
+              <b className="mvp-name">{p.name}</b>
+              {team && <span className="tn" style={{ background: team.color }}>{team.name}</span>}
+              <span className="mvp-pts">{p.points}점<small>{p.solved}문제{p.firsts > 0 && ` · 1등 ${p.firsts}번`}</small></span>
+            </li>
+          )
+        })}
+      </ol>
+      {more > 0 && <p className="hint">같은 점수 {more}명 더</p>}
+    </div>
+  )
+}
+
+// 6. 결과: 본부가 입장을 닫으면 나온다. 마지막으로 받은 상태로 위에는 팀 점수(시상대·팀 순위), 아래에는 MVP 상위 5명을 보여 준다.
 function BusResult({ data, onExit }) {
   const rows = data ? busRanking(data, teamsOf(data)) : []
   const scored = rows.some((r) => r.points > 0)
@@ -241,10 +266,18 @@ function BusResult({ data, onExit }) {
       )}
       {scored && (
         <div className="card">
+          <p className="mvp-title">🏆 팀 점수</p>
+          <div className="bus-rank-list">
+            {rows.map((r) => (
+              <div key={r.team.id} className="bus-rank">
+                <b>{place(r)}</b><span className="tn" style={{ background: r.team.color }}>{r.team.name}</span><b>{r.points}점</b>
+              </div>
+            ))}
+          </div>
           <p className="hint">버스 퀴즈 점수는 에버랜드 미션 점수에 그대로 더해집니다</p>
-          <p className="bus-scores">{rows.filter((r) => r.points > 0).map((r) => `${r.team.name} +${r.points}`).join(' · ')}</p>
         </div>
       )}
+      {data && <MvpList data={data} teams={teamsOf(data)} />}
       <div className="card bus-hero">
         <p className="bus-hero-icon">🎡</p>
         <p className="question">이제 에버랜드에서 만나요</p>
@@ -253,6 +286,26 @@ function BusResult({ data, onExit }) {
       <button className="ghost" onClick={onExit}>처음 화면으로</button>
     </main>
   )
+}
+
+// 결과 화면에 쓸 마지막 상태를 휴대폰에 남긴다. 결과가 나온 뒤 새로 고치거나 다시 열어도 팀 점수와 MVP가 보이게 한다.
+// 버스 문제 번호, 버스 점수 기록, 팀 정보만 남긴다(입장자 목록·사진은 남기지 않는다).
+const LAST_KEY = 'evm:v2:busLast'
+function saveLast(data) {
+  try {
+    const quizzes = data.quizzes.filter((q) => q.round).map((q) => ({ id: q.id, round: q.round }))
+    const ids = new Set(quizzes.map((q) => `quiz:${q.id}`))
+    localStorage.setItem(LAST_KEY, JSON.stringify({ quizzes, scores: data.scores.filter((s) => ids.has(s.game_id)), teams: data.teams, team_count: data.team_count }))
+  } catch {
+    /* 저장이 막힌 브라우저에서는 마지막으로 받은 상태만 사용한다 */
+  }
+}
+function loadLast() {
+  try {
+    return JSON.parse(localStorage.getItem(LAST_KEY)) || null
+  } catch {
+    return null
+  }
 }
 
 // 버스 퀴즈 화면. 본부가 연 문제가 있으면 그 문제를, 없으면 대기실을 보여 준다.
@@ -268,6 +321,7 @@ export function PlayerHome({ session, onLeave, onLogout }) {
   useEffect(() => {
     if (data) {
       last.current = data
+      saveLast(data)
       setEnded(false)
     }
     setBattleOn(Boolean(liveBattle(data)))
@@ -282,7 +336,7 @@ export function PlayerHome({ session, onLeave, onLogout }) {
     report('enter', `${team.name} 버스 퀴즈 입장 · 화면 ${window.innerWidth}x${window.innerHeight}`)
   }, [team.name])
 
-  if (ended) return <BusResult data={last.current} onExit={() => onLogout()} />
+  if (ended) return <BusResult data={last.current || loadLast()} onExit={() => onLogout()} />
 
   const teams = teamsOf(data)
   const current = currentBusQuestion(data)

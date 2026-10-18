@@ -577,3 +577,19 @@ button.ox:disabled { cursor: default; }
 .celebrate.mate .celebrate-title { font-size: 17px; color: #111; }
 .celebrate.mate .celebrate-sub { margin-top: 2px; font-size: 14px; font-weight: 600; color: #555; }
 @media (prefers-reduced-motion: reduce) { .celebrate.mate .celebrate-box { animation: none !important; } }
+/* 입력하는 동안(키보드가 올라온 동안): 위쪽 고정 줄을 풀고 그림을 줄여 문제와 입력 칸이 함께 보이게 한다(main.jsx의 typing) */
+.quiz-top { display: flex; flex-direction: column; gap: 14px; scroll-margin-top: 8px; }
+body.typing .top { position: static; }
+body.typing .quiz-img, body.typing .quiz-img.photo-wait { max-height: 22vh; }
+/* 버스 결과: 팀 점수와 MVP 상위 5명 */
+.mvp-title { font-size: 17px; font-weight: 800; }
+.bus-rank-list { display: flex; flex-direction: column; gap: 6px; text-align: left; }
+.mvp-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; text-align: left; }
+.mvp-list li { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 12px; background: var(--bg); }
+.mvp-list li.first { background: #fff3bf; border: 2px solid #fcc419; }
+.mvp-rank { width: 28px; text-align: center; font-size: 18px; font-weight: 800; }
+.mvp-name { font-size: 16px; word-break: keep-all; }
+.mvp-pts { margin-left: auto; text-align: right; font-weight: 800; white-space: nowrap; }
+.mvp-pts small { display: block; font-size: 12px; font-weight: 500; color: var(--muted); }
+.mvp-list .tn { padding: 2px 8px; white-space: nowrap; font-size: 12px; }
+.bus-result { display: flex; flex-direction: column; align-items: center; gap: 12px; }

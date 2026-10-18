@@ -95,6 +95,32 @@ export function busPoints(data, teamId) {
   return (data?.scores || []).filter((s) => s.team_id === teamId && ids.has(s.game_id)).reduce((sum, s) => sum + s.score, 0)
 }
 
+// 버스 MVP(2026-10-18 사용자 요청, 재미로): 팀 대항에서 맞혀 팀 점수를 만든 사람.
+// 받은 점수 합이 많은 순서이고, 같으면 1등 횟수·맞힌 문제 수 순서로 놓는다. 등수는 점수가 같으면 같다.
+// 같은 팀의 같은 이름은 한 사람으로 센다. 이름이 없는 기록(선생님 휴대폰)은 뺀다. 5등까지 보이되 많아야 8명이다.
+export function busMvp(data, top = 5, cap = 8) {
+  const ids = busQuizIds(data)
+  const firstAt = new Map()
+  const people = new Map()
+  const records = (data?.scores || []).filter((s) => ids.has(s.game_id) && (s.ok ?? s.score > 0))
+  for (const s of records) {
+    if (!firstAt.has(s.game_id) || s.at < firstAt.get(s.game_id)) firstAt.set(s.game_id, s.at)
+  }
+  for (const s of records) {
+    if (!s.who || s.who === '선생님') continue
+    const key = `${s.team_id}:${s.who}`
+    const p = people.get(key) || { key, teamId: s.team_id, name: s.who, points: 0, solved: 0, firsts: 0 }
+    p.points += s.score
+    p.solved += 1
+    if (s.at === firstAt.get(s.game_id)) p.firsts += 1
+    people.set(key, p)
+  }
+  const list = [...people.values()].sort((a, b) => b.points - a.points || b.firsts - a.firsts || b.solved - a.solved)
+  list.forEach((p) => { p.place = list.filter((x) => x.points > p.points).length + 1 })
+  const shown = list.filter((p) => p.place <= top)
+  return { rows: shown.slice(0, cap), more: Math.max(0, shown.length - cap) }
+}
+
 // 버스 순위 [{ team, points }]. 점수가 같으면 팀 번호 순서다.
 export function busRanking(data, teams) {
   return teams.map((team) => ({ team, points: busPoints(data, team.id) })).sort((a, b) => b.points - a.points || a.team.id - b.team.id)
