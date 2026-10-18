@@ -34,6 +34,12 @@ function useHashRoute() {
   return route
 }
 
+// 선생님 휴대폰이 QR로 버스 퀴즈(연습 포함)로 바꿀 때 앞 화면을 남겨 두었다가 "선생님 화면으로 돌아가기"로 되돌린다(2026-10-18).
+const TEACHER_KEY = 'evm:v2:teacherSession'
+const keepTeacher = (s) => { try { localStorage.setItem(TEACHER_KEY, JSON.stringify(s)) } catch { /* 저장이 막히면 코드를 다시 넣는다 */ } }
+const takeTeacher = () => { try { const s = JSON.parse(localStorage.getItem(TEACHER_KEY)); localStorage.removeItem(TEACHER_KEY); return s } catch { return null } }
+const hasTeacher = () => { try { return Boolean(localStorage.getItem(TEACHER_KEY)) } catch { return false } }
+
 // QR 주소(…/#q=코드)로 열면 버스 퀴즈 코드로 바로 입장한다. 코드는 주소에서 지운다.
 function takeQrCode() {
   const m = location.hash.match(/^#q=([^&]+)/)
@@ -66,7 +72,11 @@ export default function App() {
     rpc('evm_login', { p_code: qrCode })
       .then((role) => {
         const fail = (text) => (teacher ? alert(text) : setNotice(text))
-        if (role === 'player') setSession(session?.role === 'player' && session.code === qrCode ? session : { code: qrCode, role, teamId: null })
+        // 연습(practice)도 아이 화면(player)으로 들어간다. 연습인지는 서버 상태가 알려 준다.
+        if (role === 'player' || role === 'practice') {
+          if (teacher) keepTeacher(session)
+          setSession(session?.role === 'player' && session.code === qrCode ? session : { code: qrCode, role: 'player', teamId: null })
+        }
         else if (role === 'ended') fail(QUIZ_CLOSED_TEXT)
         else fail('QR의 코드가 맞지 않습니다. 선생님께 확인합니다.')
       })
@@ -77,8 +87,9 @@ export default function App() {
   if (!session) return <Login onLogin={(s) => { setNotice(''); setSession(s) }} notice={notice} />
   // 버스 퀴즈로 들어온 아이 휴대폰은 팀을 고른 뒤 퀴즈 화면만 사용한다(본부·슬라이드쇼·빙고·지도 없음).
   if (session.role === 'player') {
-    if (!session.teamId || !session.name) return <BusJoin session={session} onJoin={(me) => setSession({ ...session, ...me })} onLogout={logout} />
-    return <PlayerHome key={session.teamId} session={session} onLeave={() => setSession({ ...session, teamId: null })} onLogout={logout} />
+    const onTeacher = hasTeacher() ? () => { const prev = takeTeacher(); if (prev) setSession(prev) } : null
+    if (!session.teamId || !session.name) return <BusJoin session={session} onJoin={(me) => setSession({ ...session, ...me })} onLogout={logout} onTeacher={onTeacher} />
+    return <PlayerHome key={session.teamId} session={session} onLeave={() => setSession({ ...session, teamId: null })} onLogout={logout} onTeacher={onTeacher} />
   }
   if (route === 'hq') return <Hq session={session} onLogout={logout} />
   if (route === 'show') return <Show session={session} onLogout={logout} />
@@ -120,7 +131,7 @@ function Login({ onLogin, notice }) {
     try {
       const role = await rpc('evm_login', { p_code: value })
       if (role === 'ended') setError(QUIZ_CLOSED_TEXT)
-      else if (role) onLogin({ code: value, role, teamId: null })
+      else if (role) onLogin({ code: value, role: role === 'practice' ? 'player' : role, teamId: null })
       else setError('코드가 맞지 않습니다.')
     } catch {
       setError('연결하지 못했습니다. 통신 상태를 확인한 뒤 다시 시도합니다.')

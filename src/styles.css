@@ -593,3 +593,15 @@ body.typing .quiz-img, body.typing .quiz-img.photo-wait { max-height: 22vh; }
 .mvp-pts small { display: block; font-size: 12px; font-weight: 500; color: var(--muted); }
 .mvp-list .tn { padding: 2px 8px; white-space: nowrap; font-size: 12px; }
 .bus-result { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+/* 버스 퀴즈 연습(교사 연습용): 진행 줄과 이전·다음 */
+.practice-intro { margin: 0 0 4px; }
+.practice-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 4px; font-size: 14px; font-weight: 700; color: var(--muted); }
+.pdots { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
+.pdots i { width: 10px; height: 10px; border-radius: 50%; background: var(--line); }
+.pdots i.ok { background: #2f9e44; }
+.pdots i.no { background: #e03131; }
+.pdots i.now { outline: 2px solid var(--team); outline-offset: 1px; }
+.practice-nav { display: grid; grid-template-columns: 1fr 2fr; gap: 8px; margin-top: 10px; }
+.entry-chip.practice { background: #fff3bf; color: #8a5a00; border-color: #fcc419; }
+.entry-modes { margin-top: 4px; }
+.entry-modes button { flex: 1; }

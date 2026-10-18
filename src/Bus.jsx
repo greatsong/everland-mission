@@ -54,8 +54,9 @@ export function useBattleWatch(code, data, teamId) {
 }
 
 // 1. 입장: 이름과 팀을 한 화면에서 고른다. 팀 버튼에 담당 선생님 이름이 보여 팀을 잘못 고르지 않는다.
-export function BusJoin({ session, onJoin, onLogout }) {
+export function BusJoin({ session, onJoin, onLogout, onTeacher }) {
   const { data } = useRemote(session.code, onLogout)
+  const practice = Boolean(data?.practice)
   const view = useTeamsView(data)
   const [name, setName] = useState(session.name || '')
   const [teamId, setTeamId] = useState(session.teamId || null)
@@ -92,11 +93,18 @@ export function BusJoin({ session, onJoin, onLogout }) {
         <p className="event-org">🌱 하늘씨앗 초등부 2026 가을 야유회</p>
         <h1>🚌 버스 퀴즈</h1>
       </header>
+      {practice && (
+        <div className="card practice-intro">
+          <p className="battle-tag">🧪 버스 출발 전 연습</p>
+          <p className="question">OT와 연습 문제를 자기 속도로 풀어 봅니다</p>
+          <p className="hint">점수와 기록이 없어 몇 번이든 다시 풀 수 있습니다</p>
+        </div>
+      )}
       <form className="join-form" onSubmit={join}>
         <label className="field">
           <span>내 이름</span>
           <input value={name} onChange={(e) => { setName(e.target.value); setError('') }} maxLength={10} placeholder="예: 지민" autoComplete="off" />
-          <small>맞히면 이름이 모두의 화면에 나옵니다</small>
+          <small>{practice ? '연습에서는 이름과 답을 기록하지 않습니다' : '맞히면 이름이 모두의 화면에 나옵니다'}</small>
         </label>
         <div className="field">
           <span>우리 팀</span>
@@ -118,9 +126,12 @@ export function BusJoin({ session, onJoin, onLogout }) {
           )}
         </div>
         {error && <p className="error">{error}</p>}
-        <button className="primary" disabled={busy}>{busy ? '들어가는 중입니다' : team ? `${team.name}으로 입장` : '입장'}</button>
+        <button className="primary" disabled={busy}>{busy ? '들어가는 중입니다' : practice ? '연습 시작' : team ? `${team.name}으로 입장` : '입장'}</button>
       </form>
-      <p className="select-links"><button className="link" onClick={() => onLogout()}>코드 다시 입력</button></p>
+      <p className="select-links">
+        <button className="link" onClick={() => onLogout()}>코드 다시 입력</button>
+        {onTeacher && <> · <button className="link" onClick={onTeacher}>선생님 화면으로 돌아가기</button></>}
+      </p>
     </main>
   )
 }
@@ -292,6 +303,7 @@ function BusResult({ data, onExit }) {
 // 버스 문제 번호, 버스 점수 기록, 팀 정보만 남긴다(입장자 목록·사진은 남기지 않는다).
 const LAST_KEY = 'evm:v2:busLast'
 function saveLast(data) {
+  if (data.practice) return
   try {
     const quizzes = data.quizzes.filter((q) => q.round).map((q) => ({ id: q.id, round: q.round }))
     const ids = new Set(quizzes.map((q) => `quiz:${q.id}`))
@@ -309,7 +321,7 @@ function loadLast() {
 }
 
 // 버스 퀴즈 화면. 본부가 연 문제가 있으면 그 문제를, 없으면 대기실을 보여 준다.
-export function PlayerHome({ session, onLeave, onLogout }) {
+export function PlayerHome({ session, onLeave, onLogout, onTeacher }) {
   const { code, teamId, name } = session
   const team = TEAMS.find((t) => t.id === teamId)
   const [ended, setEnded] = useState(false)
@@ -317,7 +329,10 @@ export function PlayerHome({ session, onLeave, onLogout }) {
   const onBad = useCallback((err) => (err?.ended ? setEnded(true) : onLogout(err)), [onLogout])
   const [battleOn, setBattleOn] = useState(false)
   // 결과 화면(입장이 닫힘)에서는 30초마다만 확인한다. 본부가 입장을 다시 열면 문제 화면으로 돌아간다.
-  const { data, online, refresh } = useRemote(code, onBad, ended ? 30000 : battleOn ? POLL_BATTLE_MS : POLL_BUS_MS, deviceId())
+  const [practiceOn, setPracticeOn] = useState(false)
+  // 연습 중에는 10초마다 확인한다(본부가 버스 진행을 켜면 버스 화면으로 바뀐다).
+  const { data, online, refresh } = useRemote(code, onBad, ended ? 30000 : battleOn ? POLL_BATTLE_MS : practiceOn ? 10000 : POLL_BUS_MS, deviceId())
+  const practice = Boolean(data?.practice)
   useEffect(() => {
     if (data) {
       last.current = data
@@ -325,17 +340,20 @@ export function PlayerHome({ session, onLeave, onLogout }) {
       setEnded(false)
     }
     setBattleOn(Boolean(liveBattle(data)))
+    setPracticeOn(Boolean(data?.practice))
   }, [data])
   // 화면을 열 때 입장 기록을 다시 남긴다(본부가 기록을 지운 뒤에도 저장된 이름·팀으로 바로 답할 수 있게).
+  // 연습에서 버스 진행으로 바뀔 때도 다시 남긴다(연습 중 입장은 서버가 기록하지 않는다).
   useEffect(() => {
     rpc('evm_player_join', { p_code: code, p_device: deviceId(), p_team: teamId, p_name: name }).catch(() => {})
-  }, [code, teamId, name])
+  }, [code, teamId, name, practice])
   useBattleWatch(code, data, teamId)
 
   useEffect(() => {
     report('enter', `${team.name} 버스 퀴즈 입장 · 화면 ${window.innerWidth}x${window.innerHeight}`)
   }, [team.name])
 
+  if (ended && last.current?.practice) return <PracticeEnded onExit={() => onLogout()} onTeacher={onTeacher} />
   if (ended) return <BusResult data={last.current || loadLast()} onExit={() => onLogout()} />
 
   const teams = teamsOf(data)
@@ -348,11 +366,15 @@ export function PlayerHome({ session, onLeave, onLogout }) {
           {team.name} · {name}
         </button>
         <div className="stats">
-          <span>🚌 버스 퀴즈</span>
-          <span className="score"><b>{data ? busPoints(data, teamId) : 0}</b>점</span>
+          {practice ? <span>🧪 연습 · 기록 없음</span> : (
+            <>
+              <span>🚌 버스 퀴즈</span>
+              <span className="score"><b>{data ? busPoints(data, teamId) : 0}</b>점</span>
+            </>
+          )}
         </div>
       </header>
-      <BusStatusBar data={data} current={current} teamId={teamId} teams={teams} />
+      {!practice && <BusStatusBar data={data} current={current} teamId={teamId} teams={teams} />}
       {!online && (
         <div className="status">
           <span className="net off">연결 끊김 · 다시 연결되면 이어집니다</span>
@@ -361,15 +383,100 @@ export function PlayerHome({ session, onLeave, onLogout }) {
       <CelebrationLayer teamName={team.name} />
       <main className="body bus-body">
         {!data && <p className="guide">불러오는 중입니다.</p>}
-        {data && current && (
+        {practice && <PracticeHome code={code} data={data} name={name} />}
+        {data && !practice && current && (
           <>
             <QuizCard key={current.id} code={code} teamId={teamId} quiz={current} data={data}
               result={answerOf(data, teamId, current)} refresh={refresh} who={name} onBadPlayer={onLeave} />
             {current.round === 'ot' && current.body != null && <OtProgress data={data} quiz={current} teamId={teamId} />}
           </>
         )}
-        {data && !current && <BusLobby data={data} teamId={teamId} />}
+        {data && !practice && !current && <BusLobby data={data} teamId={teamId} />}
+        {onTeacher && <p className="select-links"><button className="link" onClick={onTeacher}>선생님 화면으로 돌아가기</button></p>}
       </main>
     </div>
+  )
+}
+
+// 연습(2026-10-18, 교사 연습용). OT와 연습 문제를 자기 속도로 한 문제씩 푼다. 서버는 채점만 하고 아무것도 기록하지 않으므로
+// 결과는 이 화면에만 두고, "처음부터 다시 풀기"로 몇 번이든 다시 푼다. 본부가 버스 진행을 켜면 PlayerHome이 버스 화면으로 바꾼다.
+function PracticeHome({ code, data, name }) {
+  const list = data.quizzes || []
+  const [idx, setIdx] = useState(0)
+  const [results, setResults] = useState({}) // 문제 id → { ok, answer, note }
+  const [round, setRound] = useState(0) // 다시 풀 때 문제 카드를 새로 만든다
+  const [summary, setSummary] = useState(false)
+  const noop = useCallback(() => {}, [])
+  if (!list.length) return <p className="guide">연습 문제가 아직 없습니다. 본부가 OT 문제를 넣으면 나옵니다.</p>
+
+  const i = Math.min(idx, list.length - 1)
+  const q = list[i]
+  const r = results[q.id]
+  // 답한 문제는 채점 결과의 정답·설명을 붙여 다시 보여 준다(이전·다음으로 돌아왔을 때).
+  const quiz = { ...q, status: 'open', answer: r?.answer ?? null, note: r?.note ?? null }
+  const right = list.filter((x) => results[x.id]?.ok).length
+  const oneShot = q.kind === 'ox' || (q.kind === 'bible' && Array.isArray(q.choices))
+
+  async function answer(value) {
+    const res = await rpc('evm_practice_answer', { p_code: code, p_id: q.id, p_text: value })
+    // OX·객관식은 한 번에 끝나고, 단답은 맞혔을 때 끝난다(틀리면 다시 낸다).
+    if (res.ok || oneShot) setResults((m) => ({ ...m, [q.id]: { ok: res.ok, answer: res.answer, note: res.note } }))
+    return res
+  }
+  function restart() {
+    setResults({})
+    setIdx(0)
+    setRound((n) => n + 1)
+    setSummary(false)
+  }
+
+  if (summary) {
+    return (
+      <div className="card bus-hero">
+        <p className="bus-hero-icon">🎉</p>
+        <p className="question">연습을 마쳤습니다</p>
+        <p className="hint">{list.length}문제 중 {right}문제 정답</p>
+        <button className="primary" onClick={restart}>처음부터 다시 풀기</button>
+        <button className="ghost" onClick={() => { setIdx(0); setSummary(false) }}>문제와 설명 다시 보기</button>
+        <p className="hint">본부가 버스 진행을 켜면 이 화면이 버스 퀴즈로 바뀝니다</p>
+      </div>
+    )
+  }
+
+  return (
+    <>
+      <div className="practice-bar">
+        <span>연습 {i + 1} / {list.length}</span>
+        <span className="pdots" aria-hidden="true">
+          {list.map((x, k) => (
+            <i key={x.id} className={`${results[x.id] ? (results[x.id].ok ? 'ok' : 'no') : ''}${k === i ? ' now' : ''}`} />
+          ))}
+        </span>
+      </div>
+      <QuizCard key={`${round}:${q.id}`} code={code} teamId={0} quiz={quiz} data={data}
+        result={r ? { ok: r.ok, score: 0 } : null} refresh={noop} who={name} answerFn={answer} />
+      <div className="practice-nav">
+        <button className="ghost" disabled={i === 0} onClick={() => setIdx(i - 1)}>이전</button>
+        {i < list.length - 1
+          ? <button className="primary" onClick={() => setIdx(i + 1)}>{r ? '다음 문제' : '건너뛰기'}</button>
+          : <button className="primary" onClick={() => setSummary(true)}>결과 보기</button>}
+      </div>
+    </>
+  )
+}
+
+// 연습이 닫혔을 때(본부가 연습을 끔). 버스 진행이 열리면 30초 안에 버스 화면으로 바뀐다.
+function PracticeEnded({ onExit, onTeacher }) {
+  return (
+    <main className="select bus-result">
+      <h1>🧪 연습이 끝났습니다</h1>
+      <div className="card bus-hero">
+        <p className="bus-hero-icon">🚌</p>
+        <p className="question">버스에서 만나요</p>
+        <p className="hint">본부가 버스 퀴즈를 열면 이 화면이 바로 바뀝니다</p>
+      </div>
+      <button className="ghost" onClick={onExit}>처음 화면으로</button>
+      {onTeacher && <button className="link" onClick={onTeacher}>선생님 화면으로 돌아가기</button>}
+    </main>
   )
 }

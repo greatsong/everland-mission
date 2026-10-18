@@ -14,6 +14,7 @@ const ERRORS = {
   EVM_QUIZ_DONE: '우리 팀이 이미 답한 문제입니다.', // 같은 팀 다른 휴대폰이 먼저 답했을 때(버스에서는 팀원 8명 중 한 명만 기록된다)
   EVM_QUIZ_NOT_STARTED: '아직 공개되지 않은 문제입니다.',
   EVM_BAD_PLAYER: '입장 정보가 없습니다. 위쪽 팀 이름을 눌러 다시 입장합니다.',
+  EVM_QUIZ_PRACTICE: '지금은 연습 시간입니다. 잠시 뒤 연습 화면으로 바뀝니다.',
 }
 
 function errorText(err) {
@@ -177,7 +178,8 @@ export function BattleOrder({ data, quiz, teamId }) {
 // 문제 카드. 현장 퀴즈 목록과 버스 퀴즈 화면(App.jsx의 PlayerHome)이 함께 쓴다.
 // OT(round = 'ot')는 휴대폰마다 따로 답하고 점수가 없다. 팀 정답률은 버스 화면이 따로 보여 준다.
 // onBadPlayer: 입장 정보가 없을 때(본부가 내보냈거나 기록을 지움) 부른다. 버스 화면은 입장 화면으로 돌아간다.
-export function QuizCard({ code, teamId, quiz, data, result, refresh, onNext, who, onBadPlayer }) {
+// answerFn: 연습(2026-10-18, 교사 연습용)처럼 기록하지 않고 채점만 받을 때 답 보내기를 바꾼다(Bus.jsx의 PracticeHome).
+export function QuizCard({ code, teamId, quiz, data, result, refresh, onNext, who, onBadPlayer, answerFn }) {
   const [text, setText] = useState('')
   const topRef = useRef(null) // 그림과 문제(입력할 때 화면 위쪽으로 올린다)
   const [hint, setHint] = useState(false)
@@ -191,7 +193,8 @@ export function QuizCard({ code, teamId, quiz, data, result, refresh, onNext, wh
   const isChoice = quiz.kind === 'bible' && Array.isArray(quiz.choices)
   const isOx = quiz.kind === 'ox'
   const oneShot = isChoice || isOx // 팀(OT는 사람)마다 한 번만 답한다
-  const each = quiz.round === 'ot'
+  const each = quiz.round === 'ot' || quiz.round === 'practice'
+  const practice = Boolean(answerFn)
   const hidden = quiz.body == null // 배틀 문제가 아직 공개되지 않음
   // 초성 퀴즈의 힌트는 점수가 절반이 되고, 그림 퀴즈의 힌트는 감점이 없다.
   const hintHalf = quiz.kind === 'chosung'
@@ -216,7 +219,7 @@ export function QuizCard({ code, teamId, quiz, data, result, refresh, onNext, wh
     setMessage('')
     answering.add(quiz.id)
     try {
-      const res = await rpc('evm_quiz_answer', {
+      const res = answerFn ? await answerFn(value) : await rpc('evm_quiz_answer', {
         p_code: code, p_team: teamId, p_id: quiz.id, p_text: value, p_hint: hint, p_name: who || null, p_device: deviceId(),
       })
       setReply(res)
@@ -267,8 +270,8 @@ export function QuizCard({ code, teamId, quiz, data, result, refresh, onNext, wh
     <div className={`card${quiz.battle ? ' battle' : ''}`}>
       {each ? (
         <>
-          <p className="battle-tag">📚 OT</p>
-          <p className="hint">점수 없이 모두 함께 답합니다</p>
+          <p className="battle-tag">{quiz.round === 'practice' ? '🧪 연습 문제' : '📚 OT'}</p>
+          <p className="hint">{practice ? '연습입니다. 답은 기록하지 않습니다' : '점수 없이 모두 함께 답합니다'}</p>
         </>
       ) : quiz.battle ? (
         <>
@@ -288,7 +291,7 @@ export function QuizCard({ code, teamId, quiz, data, result, refresh, onNext, wh
       {hasHint && (hint || done) && <p className="hint">힌트: {quiz.hint}</p>}
 
       {oneShot && !done && (
-        <p className="hint">{each ? '한 사람이 한 번씩 답합니다.' : `${isOx ? 'OX는' : '객관식은'} 팀에서 한 번만 답할 수 있습니다. 함께 의논한 뒤 고릅니다.`}</p>
+        <p className="hint">{practice ? '고르면 바로 채점합니다. 처음부터 다시 풀 수 있습니다.' : each ? '한 사람이 한 번씩 답합니다.' : `${isOx ? 'OX는' : '객관식은'} 팀에서 한 번만 답할 수 있습니다. 함께 의논한 뒤 고릅니다.`}</p>
       )}
       {isOx && (
         <div className="ox-buttons">

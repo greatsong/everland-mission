@@ -102,6 +102,9 @@ export default function Hq({ session, onLogout }) {
       <header className="hq-top">
         <h1>🎪 본부 <small>하늘씨앗 초등부 2026 가을 야유회</small></h1>
         <span className={online ? 'net' : 'net off'}>{online ? '연결됨' : '연결 끊김'}</span>
+        {data?.quiz_practice && (
+          <button className="entry-chip practice" onClick={() => setTab('bus')}>🧪 버스 퀴즈 연습 중</button>
+        )}
         {data?.quiz_entry && (
           <button className="entry-chip" onClick={() => setTab('bus')}>🚌 버스 퀴즈 열림</button>
         )}
@@ -662,8 +665,12 @@ function QuizAdmin({ code, data, teams, run }) {
 
 // 버스 퀴즈 입장(아이들 휴대폰, 2026-10-18). 열면 아이들이 QR이나 코드로 들어와 퀴즈만 풀고,
 // 도착해서 닫으면 아이들 휴대폰은 "버스 퀴즈가 끝났습니다"로 바뀌고 선생님 휴대폰만 남는다.
+// 입장 상태는 셋이다(2026-10-18). 닫힘(출발 전이면 들어올 수 없고, 버스 진행 뒤에는 결과), 연습(교사 연습용, 기록 없음),
+// 버스 진행(아이들이 들어와 본부가 연 문제를 푼다). 연습을 켜면 버스 진행이 닫히고, 버스 진행을 켜면 연습이 끝난다.
 function BusQuizEntry({ data, run }) {
   const on = Boolean(data.quiz_entry)
+  const practice = Boolean(data.quiz_practice)
+  const mode = on ? 'open' : practice ? 'practice' : 'closed'
   const [copied, setCopied] = useState(false)
   const url = data.quiz_code ? `${location.origin}${location.pathname}#q=${data.quiz_code}` : ''
 
@@ -680,15 +687,21 @@ function BusQuizEntry({ data, run }) {
   const [bigQr, setBigQr] = useState(false)
   const players = (data.players || []).length
 
-  function toggle() {
-    if (on && !confirm('버스 퀴즈 입장을 닫고 결과를 보냅니다. 아이들 휴대폰에는 결과 화면이 나오고, 선생님 휴대폰은 그대로입니다. 닫습니까?')) return
-    run('evm_quiz_entry', { p_on: !on }, on ? '버스 퀴즈 입장을 닫고 결과를 보냈습니다.' : '버스 퀴즈 입장을 열었습니다. 아이들이 QR이나 코드로 들어올 수 있습니다.')
+  function setMode(next) {
+    if (next === mode) return
+    if (mode === 'open' && !confirm(next === 'closed'
+      ? '버스 퀴즈 입장을 닫고 결과를 보냅니다. 아이들 휴대폰에는 결과 화면이 나오고, 선생님 휴대폰은 그대로입니다. 닫습니까?'
+      : '버스 진행을 닫고 연습으로 바꿉니다. 들어와 있는 휴대폰은 연습 화면으로 바뀝니다. 바꿉니까?')) return
+    if (next === 'open') run('evm_quiz_entry', { p_on: true }, '버스 퀴즈 입장을 열었습니다. 아이들이 QR이나 코드로 들어올 수 있습니다.')
+    else if (next === 'practice') run('evm_quiz_practice', { p_on: true }, '연습을 열었습니다. 같은 QR로 들어와 OT와 연습 문제를 몇 번이든 풀 수 있습니다.')
+    else if (mode === 'open') run('evm_quiz_entry', { p_on: false }, '버스 퀴즈 입장을 닫고 결과를 보냈습니다.')
+    else run('evm_quiz_practice', { p_on: false }, '연습을 닫았습니다.')
   }
 
   return (
     <div className={`entry-panel${on ? ' on' : ''}`}>
       <p className="entry-title">
-        🚌 입장 <b className={`status-chip ${on ? 'open' : 'closed'}`}>{on ? `열림 · ${players}명` : '닫힘'}</b>
+        🚌 입장 <b className={`status-chip ${on || practice ? 'open' : 'closed'}`}>{on ? `열림 · ${players}명` : practice ? '연습 중' : '닫힘'}</b>
       </p>
       {url && (
         <button type="button" className="qr-btn" onClick={() => setBigQr(true)} aria-label="입장 QR 크게 보기">
@@ -709,8 +722,18 @@ function BusQuizEntry({ data, run }) {
       ) : (
         <p className="error">버스 퀴즈 코드가 등록되지 않았습니다.</p>
       )}
-      <button className={on ? 'ghost' : 'primary'} disabled={!data.quiz_code} onClick={toggle}>{on ? '입장 닫고 결과 보내기' : '입장 열기'}</button>
-      <p className="guide">열면 아이들이 이름과 팀을 고르고 퀴즈만 풉니다. 빙고·사진·지도·위치는 볼 수 없습니다. 도착하면 닫습니다.</p>
+      <div className="seg entry-modes" role="group" aria-label="버스 퀴즈 입장 상태">
+        {[['closed', on ? '닫고 결과 보내기' : '닫힘'], ['practice', '🧪 연습'], ['open', '🚌 버스 진행']].map(([id, label]) => (
+          <button key={id} type="button" className={mode === id ? 'on' : ''} disabled={!data.quiz_code} onClick={() => setMode(id)} aria-pressed={mode === id}>{label}</button>
+        ))}
+      </div>
+      <p className="guide">
+        {mode === 'practice'
+          ? '연습: 선생님들이 같은 QR로 들어와 OT와 연습 문제를 자기 속도로 풉니다. 답과 입장은 기록하지 않아 몇 번이든 다시 풀 수 있습니다. 버스 진행을 누르면 연습이 끝납니다.'
+          : mode === 'open'
+            ? '버스 진행: 아이들이 이름과 팀을 고르고 본부가 연 문제를 풉니다. 빙고·사진·지도·위치는 볼 수 없습니다. 도착하면 닫고 결과를 보냅니다.'
+            : '닫힘: QR로 들어와도 문제를 풀 수 없습니다. 버스 진행을 닫은 뒤에는 아이들 휴대폰에 결과가 보입니다.'}
+      </p>
     </div>
   )
 }
@@ -728,7 +751,7 @@ function QrSvg({ text }) {
 
 // OT는 OX만 낸다(사람마다 한 번 답하고 정답 수를 세므로 단답형은 맞지 않는다).
 // 팀 대항은 단답형만 낸다. OX·객관식은 팀에서 한 번만 답하므로 아이 한 명이 잘못 누르면 팀 전체가 끝난다.
-const ROUND_KINDS = { ot: ['ox'], bus: ['image', 'chosung', 'nonsense'] }
+const ROUND_KINDS = { ot: ['ox'], bus: ['image', 'chosung', 'nonsense'], practice: ['nonsense', 'image', 'chosung', 'ox'] }
 const quizIcon = (q) => QUIZ_KINDS.find((k) => k.id === q.kind)?.icon || '❓'
 
 // 버스 퀴즈 진행판(본부, 2026-10-18). 왼쪽은 문제 순서, 가운데는 지금 문제, 오른쪽은 순위·입장.
@@ -736,18 +759,20 @@ const quizIcon = (q) => QUIZ_KINDS.find((k) => k.id === q.kind)?.icon || '❓'
 function BusBoard({ code, data, teams, run }) {
   const ot = busList(data, 'ot')
   const bus = busList(data, 'bus')
+  const practiceList = busList(data, 'practice') // 연습 모드에서만 나오는 문제(OT 다음에 나온다)
   const current = currentBusQuestion(data)
   const next = [...ot, ...bus].find((q) => q.status === 'draft')
   const [seconds, setSeconds] = useState(BATTLE_SECONDS[0])
   const [busy, setBusy] = useState(false)
-  const [adding, setAdding] = useState(null) // 'ot' | 'bus' | null
+  const [adding, setAdding] = useState(null) // 'ot' | 'bus' | 'practice' | null
   const [addKind, setAddKind] = useState('ox')
   const counting = current?.starts_at && new Date(current.starts_at) > serverNow(data)
   useTick(Boolean(counting))
 
   const stage = (q) => {
-    const list = q.round === 'ot' ? ot : bus
-    return `${q.round === 'ot' ? '📚 OT' : '⚡ 팀 대항'} ${list.findIndex((x) => x.id === q.id) + 1}/${list.length}`
+    const list = q.round === 'ot' ? ot : q.round === 'practice' ? practiceList : bus
+    const label = q.round === 'ot' ? '📚 OT' : q.round === 'practice' ? '🧪 연습' : '⚡ 팀 대항'
+    return `${label} ${list.findIndex((x) => x.id === q.id) + 1}/${list.length}`
   }
 
   async function start(q) {
@@ -778,6 +803,10 @@ function BusBoard({ code, data, teams, run }) {
           {bus.map((q) => <BusRow key={q.id} q={q} stage={stage(q)} current={current} onStart={start} run={run} data={data} />)}
           {!bus.length && <p className="hint">아직 팀 대항 문제가 없습니다.</p>}
           <button className="link" onClick={() => openAdd('bus')}>+ 팀 대항 문제 추가</button>
+          <h3>🧪 연습 문제 · 연습에서만 OT 다음에 나옴</h3>
+          {practiceList.map((q) => <BusRow key={q.id} q={q} stage={stage(q)} current={current} onStart={start} run={run} data={data} />)}
+          {!practiceList.length && <p className="hint">연습 문제가 없습니다. 연습에서는 OT만 나옵니다.</p>}
+          <button className="link" onClick={() => openAdd('practice')}>+ 연습 문제 추가</button>
           <button className="link bus-reset"
             onClick={() => confirm('버스 퀴즈를 처음부터 다시 합니까? 버스 문제가 모두 시작 전으로 돌아가고 OT 응답과 버스 점수가 지워집니다. 입장한 아이들과 현장 기록은 그대로입니다.') && run('evm_bus_reset', {}, '버스 퀴즈를 처음 상태로 되돌렸습니다.')}>
             ↺ 처음부터 다시(리허설 뒤)
@@ -842,7 +871,7 @@ function BusBoard({ code, data, teams, run }) {
 
       {adding && (
         <div className="bus-add">
-          <p className="entry-title">{adding === 'ot' ? '📚 OT 문제 추가 (점수 없음)' : '⚡ 팀 대항 문제 추가'}
+          <p className="entry-title">{adding === 'ot' ? '📚 OT 문제 추가 (점수 없음)' : adding === 'practice' ? '🧪 연습 문제 추가 (연습에서만, 기록 없음)' : '⚡ 팀 대항 문제 추가'}
             <button className="link" onClick={() => setAdding(null)}>닫기</button></p>
           <div className="seg">
             {ROUND_KINDS[adding].map((k) => {
@@ -937,7 +966,7 @@ function BusRow({ q, stage, current, onStart, run, data }) {
       <div className={`qrow ${state}`}>
         <span className="dot" />
         <span className="qrow-body">{quizIcon(q)} {q.body}</span>
-        {!now && <button className="link" onClick={() => onStart(q)}>{q.status === 'closed' ? '다시' : '시작'}</button>}
+        {!now && q.round !== 'practice' && <button className="link" onClick={() => onStart(q)}>{q.status === 'closed' ? '다시' : '시작'}</button>}
         <button className="link" aria-label={`${stage} 고치기`} onClick={() => setEditing(!editing)}>✎</button>
         <button className="link" aria-label={`${stage} 삭제`}
           onClick={() => confirm('이 문제를 삭제합니까? 이 문제로 받은 점수와 응답도 함께 지워집니다.') && run('evm_quiz_delete', { p_id: q.id }, '삭제했습니다.')}>✕</button>
@@ -1022,7 +1051,8 @@ function QuizForm({ kind, code, run, round = null, onAdded }) {
   const hasHint = kind === 'chosung' || kind === 'image'
   // 선착순(rush)은 점수가 순서로 정해지므로 문제 점수를 고르지 않는다. 서버 점수 칸에는 1등 점수(30)를 둔다.
   // 버스 팀 대항은 현장의 1/5 점수다(선착순 6·4·2·1점, 그 밖은 2·4·6점 중에서).
-  const pointsFor = round === 'ot' ? 1 : battle === 'rush' ? (round === 'bus' ? 6 : 30) : points
+  const each = round === 'ot' || round === 'practice' // 사람마다 답하고 점수 없음
+  const pointsFor = each ? 1 : battle === 'rush' ? (round === 'bus' ? 6 : 30) : points
   const pointChoices = round === 'bus' ? [2, 4, 6] : battle === 'first' ? [5, 10, 20, 30] : [5, 10, 20]
 
   async function onPhoto(e) {
@@ -1044,7 +1074,7 @@ function QuizForm({ kind, code, run, round = null, onAdded }) {
     const id = await run(
       'evm_quiz_add',
       { p_kind: kind, p_photo: null, p_note: draft.note.trim() || null, ...args, p_points: pointsFor, p_open: start && !battle && !round,
-        p_battle: round === 'ot' ? null : battle, p_round: round },
+        p_battle: each ? null : battle, p_round: round },
       round ? '진행판 목록에 넣었습니다.' : start ? '출제했습니다.' : '보관했습니다.',
     )
     if (id && round) onAdded?.()
@@ -1174,7 +1204,7 @@ function QuizForm({ kind, code, run, round = null, onAdded }) {
         )}
         <p className="guide">
           {round
-            ? '추가한 문제는 진행판 목록 끝에 들어갑니다. 진행판에서 한 문제씩 시작합니다.'
+            ? (round === 'practice' ? '연습 문제는 연습에서만 OT 다음에 나옵니다. 버스 진행에는 나오지 않습니다.' : '추가한 문제는 진행판 목록 끝에 들어갑니다. 진행판에서 한 문제씩 시작합니다.')
             : battle
             ? '배틀은 한 번에 하나만 진행됩니다. 새 배틀을 시작하면 진행 중인 배틀 문제는 마감됩니다. 보관한 배틀 문제는 아래 목록에서 시작합니다.'
             : '바로 출제한 문제는 모든 팀의 퀴즈 대결 탭에 곧바로 나옵니다. 보관한 문제는 아래 목록에서 골라 출제합니다.'}
@@ -1184,10 +1214,10 @@ function QuizForm({ kind, code, run, round = null, onAdded }) {
       <div className="composer-preview">
         <p className="preview-label">팀 화면 미리보기</p>
         <div className="card">
-          {round === 'ot' ? (
+          {each ? (
             <>
-              <p className="battle-tag">📚 OT</p>
-              <p className="hint">점수 없이 모두 함께 답합니다</p>
+              <p className="battle-tag">{round === 'practice' ? '🧪 연습' : '📚 OT'}</p>
+              <p className="hint">{round === 'practice' ? '연습입니다. 답은 기록하지 않습니다' : '점수 없이 모두 함께 답합니다'}</p>
             </>
           ) : battle ? (
             <>

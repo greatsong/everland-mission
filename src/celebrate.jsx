@@ -23,7 +23,7 @@ const LOOKS = {
 // 채점 결과로 축하 모양을 정한다. points와 rank는 서버가 돌려준 값, winner는 1등 팀 이름(1등만 배틀에서 늦게 맞혔을 때),
 // who는 맞힌 사람 이름(버스 퀴즈). 돌려주는 값: { tier, title, points, sub, note }
 export function resultLook(quiz, points, rank, winner, who) {
-  if (quiz.round === 'ot') return { tier: 'ok', title: '정답!', sub: who ? `${josa(who)} 맞혔습니다` : undefined }
+  if (quiz.round === 'ot' || quiz.round === 'practice') return { tier: 'ok', title: '정답!', sub: who ? `${josa(who)} 맞혔습니다` : undefined }
   if (quiz.battle && rank === 1 && points > 0) return { tier: 'gold', title: '1등!', points, sub: who ? `${josa(who)} 가장 먼저 맞혔습니다` : '가장 먼저 맞혔습니다' }
   if (quiz.battle === 'first') {
     return { tier: 'late', title: '정답!', sub: '정답으로 기록되었습니다.', note: `점수는 가장 먼저 맞힌 ${winner || '팀'}이 받았습니다.` }

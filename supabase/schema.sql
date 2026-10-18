@@ -121,13 +121,17 @@ alter table evm_checkins enable row level security;
 -- 코드가 맞으면 'team' 또는 'admin', 틀리면 null.
 -- 버스 퀴즈 코드(quiz_code, 2026-10-18)는 본부가 입장을 열어 둔 동안(quiz_open = on) 'player', 닫으면 'ended'.
 -- player는 아이들 휴대폰용으로 퀴즈만 보고 답할 수 있다(evm_require_quiz를 쓰는 함수만).
+-- 연습(2026-10-18, 교사 연습용): 입장이 닫혀 있고 본부가 연습을 켜면(quiz_practice = on) 'practice'다.
+-- practice는 OT와 연습 문제만 보고 evm_practice_answer로 채점만 받는다(아무것도 기록하지 않는다).
 create or replace function evm_login(p_code text) returns text
 language sql stable security definer set search_path = public as $$
   select case
     when p_code = (select value from evm_config where key = 'admin_code') then 'admin'
     when p_code = (select value from evm_config where key = 'join_code') then 'team'
     when p_code = (select value from evm_config where key = 'quiz_code') then
-      case when coalesce((select value from evm_config where key = 'quiz_open'), 'off') = 'on' then 'player' else 'ended' end
+      case when coalesce((select value from evm_config where key = 'quiz_open'), 'off') = 'on' then 'player'
+           when coalesce((select value from evm_config where key = 'quiz_practice'), 'off') = 'on' then 'practice'
+           else 'ended' end
   end
 $$;
 
@@ -139,7 +143,7 @@ begin
   if v_role = 'ended' then
     raise exception 'EVM_QUIZ_ENDED' using errcode = 'P0001';
   end if;
-  if v_role is null or v_role = 'player' or (p_admin and v_role <> 'admin') then
+  if v_role is null or v_role in ('player', 'practice') or (p_admin and v_role <> 'admin') then
     raise exception 'EVM_BAD_CODE' using errcode = 'P0001';
   end if;
 end $$;
@@ -164,6 +168,51 @@ begin
   perform evm_require(p_code, true);
   insert into evm_config (key, value) values ('quiz_open', case when p_on then 'on' else 'off' end)
   on conflict (key) do update set value = excluded.value;
+  -- 버스 진행을 시작하면 연습은 끝난다.
+  if p_on then
+    insert into evm_config (key, value) values ('quiz_practice', 'off') on conflict (key) do update set value = excluded.value;
+  end if;
+end $$;
+
+-- 연습 켜기·끄기(본부, 2026-10-18). 켜면 버스 진행(입장)은 닫힌다. 연습 답은 기록하지 않는다.
+create or replace function evm_quiz_practice(p_code text, p_on boolean) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform evm_require(p_code, true);
+  insert into evm_config (key, value) values ('quiz_practice', case when p_on then 'on' else 'off' end)
+  on conflict (key) do update set value = excluded.value;
+  if p_on then
+    insert into evm_config (key, value) values ('quiz_open', 'off') on conflict (key) do update set value = excluded.value;
+  end if;
+end $$;
+
+-- 연습 문제 목록과 채점(2026-10-18). OT와 연습 문제를 순서대로 보낸다(정답·설명은 답한 뒤 채점 결과로만 보낸다).
+create or replace function evm_practice_quizzes()
+returns json language sql stable security definer set search_path = public as $$
+  select coalesce(json_agg(json_build_object('id', id, 'kind', kind, 'body', body, 'choices', choices, 'hint', hint,
+    'round', round, 'has_photo', photo is not null) order by case round when 'ot' then 0 else 1 end, id), '[]'::json)
+  from evm_quizzes where round in ('ot', 'practice')
+$$;
+
+create or replace function evm_practice_answer(p_code text, p_id bigint, p_text text) returns json
+language plpgsql stable security definer set search_path = public as $$
+declare q evm_quizzes%rowtype; v_choice boolean; v_ok boolean;
+begin
+  if evm_login(p_code) not in ('practice', 'admin') then
+    raise exception 'EVM_BAD_CODE' using errcode = 'P0001';
+  end if;
+  select * into q from evm_quizzes where id = p_id and round in ('ot', 'practice');
+  if not found then
+    raise exception 'EVM_QUIZ_CLOSED' using errcode = 'P0001';
+  end if;
+  v_choice := (q.kind = 'bible' and q.choices is not null) or q.kind = 'ox';
+  v_ok := case when v_choice then upper(btrim(coalesce(p_text, ''))) = upper(q.answer)
+    else exists (select 1 from unnest(string_to_array(q.answer, ',')) k
+                 where evm_norm(k) <> '' and evm_norm(p_text) = evm_norm(k)) end;
+  -- 객관식·OX는 한 번에 끝나므로 정답과 설명을 보낸다. 단답은 맞혔을 때만 정답과 설명을 보낸다.
+  return json_build_object('ok', v_ok, 'points', 0, 'each', true,
+    'answer', case when v_choice or v_ok then q.answer end,
+    'note', case when v_choice or v_ok then q.note end);
 end $$;
 
 -- 전체 상태(사진 본문 제외). 화면이 주기적으로 부른다.
@@ -181,6 +230,13 @@ declare
     or coalesce((select value from evm_config where key = 'share_locations'), 'off') = 'on';
 begin
   perform evm_require_quiz(p_code);
+  -- 연습(교사 연습용): 팀 목록과 연습 문제만 보낸다. 점수·입장자·현장 기록은 보내지 않는다.
+  if v_role = 'practice' then
+    return json_build_object('practice', true, 'now', now(),
+      'team_count', coalesce((select value::int from evm_config where key = 'team_count'), 6),
+      'teams', coalesce((select json_agg(json_build_object('team_id', team_id, 'teachers', teachers)) from evm_teams), '[]'::json),
+      'quizzes', evm_practice_quizzes(), 'scores', '[]'::json, 'players', '[]'::json);
+  end if;
   if v_player then
     v_see_where := false;
   end if;
@@ -249,6 +305,7 @@ begin
     'team_count', coalesce((select value::int from evm_config where key = 'team_count'), 6),
     -- 버스 퀴즈 입장 상태와 코드는 본부에만 보낸다(본부 화면에 표시)
     'quiz_entry', case when v_admin then coalesce((select value from evm_config where key = 'quiz_open'), 'off') = 'on' end,
+    'quiz_practice', case when v_admin then coalesce((select value from evm_config where key = 'quiz_practice'), 'off') = 'on' end,
     'quiz_code', case when v_admin then (select value from evm_config where key = 'quiz_code') end,
     'now', now()
   );
@@ -407,6 +464,9 @@ alter table evm_quizzes add column if not exists note text;
 -- 버스 퀴즈(2026-10-18): round가 'ot'이면 OT(아이마다 한 번씩 답하고 점수 없음), 'bus'면 팀 대항(작은 점수 6·4·2·1).
 -- null이면 에버랜드 현장 퀴즈다. 버스 문제는 본부 진행판에서 한 문제씩 시작한다(evm_bus_start).
 alter table evm_quizzes add column if not exists round text check (round in ('ot', 'bus'));
+-- 연습 문제(2026-10-18): round가 'practice'면 연습 모드에서만 보이는 문제다(버스 진행에는 나오지 않는다).
+alter table evm_quizzes drop constraint if exists evm_quizzes_round_check;
+alter table evm_quizzes add constraint evm_quizzes_round_check check (round in ('ot', 'bus', 'practice'));
 -- 맞힌 사람 이름(버스 퀴즈). 팀 기록을 만든 사람이며, 화면에는 맞힌 사람만 보인다.
 alter table evm_scores add column if not exists who text;
 -- 버스 퀴즈에 들어온 사람(휴대폰마다 한 줄). 이름은 행사 뒤 evm_wipe로 지운다.
@@ -469,7 +529,7 @@ begin
           nullif(btrim(coalesce(p_hint, '')), ''), case when p_round = 'bus' then least(greatest(p_points, 1), 6) else p_points end,
           case when p_open and p_battle is null and p_round is null then 'open' else 'draft' end,
           case when p_kind = 'image' then p_photo end,
-          case when p_round = 'ot' then null when p_round = 'bus' then 'rush' else p_battle end, -- 팀 대항은 선착순만
+          case when p_round in ('ot', 'practice') then null when p_round = 'bus' then 'rush' else p_battle end, -- 팀 대항은 선착순만
           nullif(left(btrim(coalesce(p_note, '')), 400), ''), p_round)
   returning id into v_id;
   return v_id;
@@ -484,7 +544,7 @@ begin
   if p_seconds not between 0 and 60 then
     raise exception 'EVM_BAD_SECONDS' using errcode = 'P0001';
   end if;
-  if not exists (select 1 from evm_quizzes where id = p_id and round is not null) then
+  if not exists (select 1 from evm_quizzes where id = p_id and round in ('ot', 'bus')) then
     raise exception 'EVM_BAD_QUIZ' using errcode = 'P0001';
   end if;
   update evm_quizzes set status = 'closed' where round is not null and status = 'open' and id <> p_id;
@@ -496,6 +556,9 @@ create or replace function evm_player_join(p_code text, p_device text, p_team in
 language plpgsql security definer set search_path = public as $$
 begin
   perform evm_require_quiz(p_code);
+  if evm_login(p_code) = 'practice' then
+    return; -- 연습은 입장 기록을 남기지 않는다(교사 연습용)
+  end if;
   if coalesce(btrim(p_device), '') = '' or length(btrim(coalesce(p_name, ''))) not between 1 and 10 or p_team not between 1 and 6 then
     raise exception 'EVM_BAD_PLAYER' using errcode = 'P0001';
   end if;
@@ -638,7 +701,9 @@ language plpgsql stable security definer set search_path = public as $$
 begin
   perform evm_require_quiz(p_code);
   return (select photo from evm_quizzes
-          where id = p_id and (evm_login(p_code) = 'admin' or status in ('open', 'closed')));
+          where id = p_id and (evm_login(p_code) = 'admin'
+            or (evm_login(p_code) = 'practice' and round in ('ot', 'practice'))
+            or (evm_login(p_code) <> 'practice' and status in ('open', 'closed'))));
 end $$;
 
 -- 답안 제출과 채점. 객관식은 한 번만, 나머지는 맞힐 때까지 낼 수 있다.
@@ -655,6 +720,9 @@ declare q evm_quizzes%rowtype; v_ok boolean; v_choice boolean; v_points int := 0
   v_player boolean := evm_login(p_code) = 'player';
 begin
   perform evm_require_quiz(p_code);
+  if evm_login(p_code) = 'practice' then
+    raise exception 'EVM_QUIZ_PRACTICE' using errcode = 'P0001'; -- 연습 답은 evm_practice_answer로 채점만 한다
+  end if;
   -- 버스 퀴즈 코드(아이 휴대폰)는 입장할 때 고른 팀·이름으로만 답한다(다른 팀·이름 사칭 방지).
   if v_player then
     select team_id, name into p_team, p_name from evm_players where device = v_device;
@@ -973,6 +1041,7 @@ end $$;
 
 revoke all on function evm_require(text, boolean), evm_require_quiz(text) from public, anon, authenticated;
 revoke all on function evm_team_apart(int), evm_split_update(int) from public, anon, authenticated;
+revoke all on function evm_practice_quizzes() from public, anon, authenticated; -- evm_state(연습)가 안에서만 부른다
 grant execute on function
   evm_login(text), evm_state(text, text), evm_submit(text, int, text, text), evm_remove(text, int, text),
   evm_submit_at(text, int, text, text, text, double precision, double precision), evm_thumb(text, int, text),
@@ -986,6 +1055,7 @@ grant execute on function
   evm_quiz_add(text, text, text, json, text, text, int, boolean, text, text, text, text), evm_quiz_battle_start(text, bigint, int),
   evm_bus_start(text, bigint, int), evm_player_join(text, text, int, text), evm_player_remove(text, text), evm_bus_forget(text),
   evm_quiz_edit(text, bigint, text, text, text, text, json), evm_bus_reset(text),
+  evm_quiz_practice(text, boolean), evm_practice_answer(text, bigint, text),
   evm_quiz_entry(text, boolean),
   evm_quiz_seed(text, json), evm_quiz_set(text, bigint, text),
   evm_quiz_open_all(text, text), evm_quiz_delete(text, bigint), evm_act_submit(text, int, text, text),
