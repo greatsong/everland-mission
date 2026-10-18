@@ -48,7 +48,8 @@ function useCountdown(data, quiz) {
   return sec
 }
 
-export default function Games({ code, teamId, data, refresh, focus, onFocused }) {
+// intro: 목록 위 안내 문구(버스 퀴즈 화면은 따로 준다)
+export default function Games({ code, teamId, data, refresh, focus, onFocused, intro }) {
   const [selected, setSelected] = useState(null) // 문제 id
 
   // 배틀 알림에서 "배틀로 가기"를 누르면 그 문제를 연다.
@@ -96,7 +97,7 @@ export default function Games({ code, teamId, data, refresh, focus, onFocused })
   return (
     <>
       <p className="guide">
-        본부가 낸 문제를 모든 팀이 풉니다. 맞히면 문제에 적힌 점수가 순위에 더해집니다. 줄을 서서 기다리는 동안 작은 목소리로 의논합니다.
+        {intro || '본부가 낸 문제를 모든 팀이 풉니다. 맞히면 문제에 적힌 점수가 순위에 더해집니다. 줄을 서서 기다리는 동안 작은 목소리로 의논합니다.'}
       </p>
       {live && <LiveBattle data={data} quiz={live} teamId={teamId} onOpen={() => setSelected(live.id)} />}
       {QUIZ_KINDS.map((kind) => {
@@ -252,6 +253,7 @@ function QuizCard({ code, teamId, quiz, data, result, refresh, onNext }) {
       <p className={quiz.kind === 'chosung' ? 'big' : 'question'}>{quiz.body}</p>
       {hasHint && (hint || done) && <p className="hint">힌트: {quiz.hint}</p>}
 
+      {isChoice && !done && <p className="hint">객관식은 팀에서 한 번만 답할 수 있습니다. 함께 의논한 뒤 고릅니다.</p>}
       {isChoice && (
         <div className="choices">
           {quiz.choices.map((c, i) => {

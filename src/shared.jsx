@@ -35,7 +35,7 @@ export function useRemote(code, onBadCode, interval = POLL_MS) {
       setData({ ...next, startedAt, receivedAt: Date.now() })
       setOnline(true)
     } catch (err) {
-      if (err instanceof BadCodeError) onBadCode()
+      if (err instanceof BadCodeError) onBadCode(err)
       else setOnline(false)
     }
   }, [code, onBadCode])
@@ -85,29 +85,41 @@ export function Photo({ code, sub, alt, className }) {
   return <img className={className} src={src} alt={alt} />
 }
 
-// 퀴즈 그림. 그림은 바뀌지 않으므로 문제 번호별로 한 번만 받는다.
-// 배틀 문제는 공개 시각 전에는 서버가 그림을 주지 않으므로(null) 기억하지 않고 다음에 다시 받는다.
-const quizPhotos = new Map()
+// 퀴즈 그림. 그림은 바뀌지 않으므로 문제 번호별로 한 번만 받는다(받는 중인 요청도 함께 쓴다).
+// 배틀 문제는 카운트다운 동안 미리 받아 두고(prefetchQuizPhoto) 공개 시각에 보여 준다.
+const quizPhotos = new Map() // 문제 번호 → 그림
+const quizPhotoLoads = new Map() // 문제 번호 → 받는 중인 요청
+
+export function loadQuizPhoto(code, id) {
+  if (quizPhotos.has(id)) return Promise.resolve(quizPhotos.get(id))
+  if (!quizPhotoLoads.has(id)) {
+    const load = rpc('evm_quiz_photo', { p_code: code, p_id: id })
+      .then((photo) => {
+        if (photo) quizPhotos.set(id, photo)
+        return photo
+      })
+      .finally(() => quizPhotoLoads.delete(id))
+    quizPhotoLoads.set(id, load)
+  }
+  return quizPhotoLoads.get(id)
+}
+
+export const prefetchQuizPhoto = (code, id) => loadQuizPhoto(code, id).catch(() => {})
 
 export function QuizImage({ code, quiz, small = false }) {
   const [src, setSrc] = useState(() => quizPhotos.get(quiz.id) || null)
   const [zoom, setZoom] = useState(false)
-  const ready = quiz.body != null // 배틀 문제가 공개되면 문제 내용이 함께 온다
   useEffect(() => {
-    if (src || !ready) return
+    if (src) return
     let alive = true
-    rpc('evm_quiz_photo', { p_code: code, p_id: quiz.id })
-      .then((photo) => {
-        if (!photo) return
-        quizPhotos.set(quiz.id, photo)
-        if (alive) setSrc(photo)
-      })
+    loadQuizPhoto(code, quiz.id)
+      .then((photo) => photo && alive && setSrc(photo))
       .catch(() => {})
     return () => {
       alive = false
     }
-  }, [code, quiz.id, ready, src])
-  if (!src) return <div className={small ? 'quiz-thumb photo-wait' : 'quiz-img photo-wait'}>{ready ? '그림을 불러오는 중입니다' : '🖼️'}</div>
+  }, [code, quiz.id, src])
+  if (!src) return <div className={small ? 'quiz-thumb photo-wait' : 'quiz-img photo-wait'}>{small ? '🖼️' : '그림을 불러오는 중입니다'}</div>
   if (small) return <img className="quiz-thumb" src={src} alt="그림 퀴즈" />
   return (
     <>
@@ -135,9 +147,9 @@ export const HQ_TEAM = { id: 0, name: '본부', color: '#1f2a24' }
 // 팀 인증 사진은 바뀔 때만 다시 받는다(받은 시각별로 기억).
 const avatarCache = new Map()
 
-export function TeamAvatar({ code, data, team }) {
+export function TeamAvatar({ code, data, team, photo = true }) {
   const profile = data.teams?.find((t) => t.team_id === team.id)
-  const key = profile?.photo_at ? `${team.id}:${profile.photo_at}` : null
+  const key = photo && profile?.photo_at ? `${team.id}:${profile.photo_at}` : null
   const [src, setSrc] = useState(key ? avatarCache.get(key) : null)
   useEffect(() => {
     if (!key) {
@@ -163,14 +175,15 @@ export function TeamAvatar({ code, data, team }) {
   return <span className="avatar empty" style={{ background: team.color }}>{team.id}</span>
 }
 
-export function Ranking({ code, data, myTeamId }) {
+// photos: 팀 인증 사진을 받을지(버스 퀴즈로 들어온 아이 휴대폰은 받지 않는다)
+export function Ranking({ code, data, myTeamId, photos = true }) {
   const rows = ranking(data, teamsOf(data))
   return (
     <ol className="ranking">
       {rows.map((r, i) => (
         <li key={r.team.id} className={r.team.id === myTeamId ? 'me' : ''}>
           <span className="rank">{i + 1}</span>
-          <TeamAvatar code={code} data={data} team={r.team} />
+          <TeamAvatar code={code} data={data} team={r.team} photo={photos} />
           <span className="rank-detail">
             <b className="rank-name" style={{ color: r.team.color }}>{r.team.name}</b>
             {teachersOf(data, r.team.id) && <span className="rank-teachers"> {teachersOf(data, r.team.id)}</span>}

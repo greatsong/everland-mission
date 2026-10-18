@@ -484,3 +484,10 @@ h1, h2, p, figure { margin: 0; }
 .answer.medal { font-size: 22px; padding: 10px; border-radius: 14px; background: #fff3bf; color: #a35a00; }
 .battle-winner { padding: 10px 12px; border-radius: 12px; background: #111; color: #ffd43b; font-size: 15px; font-weight: 700; line-height: 1.45; word-break: keep-all; }
 @media (prefers-reduced-motion: reduce) { .celebrate-box, .celebrate-icon, .answer-form.shake input, .countdown.last, .celebrate.rival .celebrate-box { animation: none !important; } }
+
+/* 버스 퀴즈 입장(본부, 2026-10-18) */
+.entry-panel { margin: 12px 0; padding: 14px 16px; border-radius: 16px; background: var(--card); border: 2px dashed var(--line); display: flex; flex-direction: column; gap: 8px; }
+.entry-panel.on { border: 2px solid #2b8a3e; background: #ebfbee; }
+.entry-title { font-weight: 800; font-size: 16px; }
+.entry-panel .order-meta b { font-size: 16px; letter-spacing: 1px; }
+.entry-chip { border: 0; border-radius: 999px; padding: 4px 10px; background: #2b8a3e; color: #fff; font-size: 12px; font-weight: 700; }

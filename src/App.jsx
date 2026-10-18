@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { TEAMS, MISSIONS, SCORE } from './data.js'
-import { rpc, BadCodeError, loadSession, saveSession, loadState, saveState, compressPhoto, report, lazyImport } from './store.js'
+import { rpc, BadCodeError, loadSession, saveSession, loadState, saveState, compressPhoto, report, lazyImport, QUIZ_ENDED_TEXT, QUIZ_CLOSED_TEXT } from './store.js'
 import { boardFor, teamScore, doneByTeam, missionInfo, rushRank, completedLines, teacherNames, locationGroups, liveBattle, battleRule, serverNow, battleOrder } from './logic.js'
-import { useRemote, usePhoto, Photo, Ranking, teamsOf, useLocationShare, LocationList, everlandMapUrl, TeamAvatar, teachersOf, teacherMap, withHere, HQ_TEAM, SplitNote, LocateButton } from './shared.jsx'
+import { useRemote, usePhoto, Photo, Ranking, teamsOf, useLocationShare, LocationList, everlandMapUrl, TeamAvatar, teachersOf, teacherMap, withHere, HQ_TEAM, SplitNote, LocateButton, prefetchQuizPhoto } from './shared.jsx'
 import { lazy, Suspense } from 'react'
 import Games, { CountdownNumber } from './Games.jsx'
 import { CelebrationLayer, celebrate, resultLook, unlockAudio, markShown, dismissCelebration } from './celebrate.jsx'
@@ -33,17 +33,49 @@ function useHashRoute() {
   return route
 }
 
+// QR 주소(…/#q=코드)로 열면 버스 퀴즈 코드로 바로 입장한다. 코드는 주소에서 지운다.
+function takeQrCode() {
+  const m = location.hash.match(/^#q=([^&]+)/)
+  if (!m) return null
+  history.replaceState(null, '', location.pathname + location.search)
+  return decodeURIComponent(m[1]).trim().toLowerCase()
+}
+
 export default function App() {
   const [session, setSessionState] = useState(loadSession)
+  const [notice, setNotice] = useState('') // 입장 화면 안내(버스 퀴즈가 끝났을 때 등)
+  const [qrCode] = useState(takeQrCode)
   const route = useHashRoute()
 
   const setSession = useCallback((next) => {
     saveSession(next)
     setSessionState(next)
   }, [])
-  const logout = useCallback(() => setSession(null), [setSession])
+  // err가 있으면 서버가 코드를 거부한 것이다. 버스 퀴즈 입장이 닫혔으면 그 안내를 남긴다.
+  const logout = useCallback((err) => {
+    if (err?.ended) setNotice(QUIZ_ENDED_TEXT)
+    setSession(null)
+  }, [setSession])
 
-  if (!session) return <Login onLogin={setSession} />
+  // QR로 연 경우: 선생님·본부 휴대폰은 지금 입장을 그대로 두고, 그 밖에는 버스 퀴즈로 입장한다.
+  useEffect(() => {
+    if (!qrCode || (session && session.role !== 'player')) return
+    rpc('evm_login', { p_code: qrCode })
+      .then((role) => {
+        if (role === 'player') setSession({ code: qrCode, role, teamId: session?.code === qrCode ? session.teamId : null })
+        else if (role === 'ended') setNotice(QUIZ_CLOSED_TEXT)
+        else if (!role) setNotice('QR의 코드가 맞지 않습니다. 선생님께 확인합니다.')
+      })
+      .catch(() => setNotice('연결하지 못했습니다. 통신 상태를 확인한 뒤 QR을 다시 찍습니다.'))
+    // 처음 한 번만 확인한다(qrCode는 바뀌지 않는다)
+  }, [qrCode])
+
+  if (!session) return <Login onLogin={(s) => { setNotice(''); setSession(s) }} notice={notice} />
+  // 버스 퀴즈로 들어온 아이 휴대폰은 팀을 고른 뒤 퀴즈 화면만 사용한다(본부·슬라이드쇼·빙고·지도 없음).
+  if (session.role === 'player') {
+    if (!session.teamId) return <TeamSelect session={session} onSelect={(teamId) => setSession({ ...session, teamId })} onLogout={logout} />
+    return <PlayerHome key={session.teamId} session={session} onLeave={() => setSession({ ...session, teamId: null })} onLogout={logout} />
+  }
   if (route === 'hq') return <Hq session={session} onLogout={logout} />
   if (route === 'show') return <Show session={session} onLogout={logout} />
   if (!session.teamId) return <TeamSelect session={session} onSelect={(teamId) => setSession({ ...session, teamId })} onLogout={logout} />
@@ -70,7 +102,7 @@ function EventTitle() {
 
 const EVERLAND_MAP = 'https://www.everland.com/everland/map'
 
-function Login({ onLogin }) {
+function Login({ onLogin, notice }) {
   const [code, setCode] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -83,7 +115,8 @@ function Login({ onLogin }) {
     setError('')
     try {
       const role = await rpc('evm_login', { p_code: value })
-      if (role) onLogin({ code: value, role, teamId: null })
+      if (role === 'ended') setError(QUIZ_CLOSED_TEXT)
+      else if (role) onLogin({ code: value, role, teamId: null })
       else setError('코드가 맞지 않습니다.')
     } catch {
       setError('연결하지 못했습니다. 통신 상태를 확인한 뒤 다시 시도합니다.')
@@ -95,6 +128,7 @@ function Login({ onLogin }) {
   return (
     <main className="select">
       <EventTitle />
+      {notice && !error && <p className="notice">{notice}</p>}
       <form className="login" onSubmit={submit}>
         <input
           value={code}
@@ -117,7 +151,11 @@ function TeamSelect({ session, onSelect, onLogout }) {
   return (
     <main className="select">
       <EventTitle />
-      <p className="sub">우리 팀을 선택합니다. 팀이 A조, B조로 나뉘면 선생님마다 각자 휴대폰으로 입장합니다.</p>
+      <p className="sub">
+        {session.role === 'player'
+          ? '🚌 버스 퀴즈에 참여할 우리 팀을 고릅니다. 버튼에 적힌 담당 선생님 이름을 확인합니다.'
+          : '우리 팀을 선택합니다. 팀이 A조, B조로 나뉘면 선생님마다 각자 휴대폰으로 입장합니다.'}
+      </p>
       <div className="team-grid">
         {teamsOf(data).map((t) => (
           <button key={t.id} className="team-btn" style={{ background: t.color }} onClick={() => onSelect(t.id)}>
@@ -128,11 +166,73 @@ function TeamSelect({ session, onSelect, onLogout }) {
       </div>
       <p className="select-links">
         {session.role === 'admin' && <a href="#hq">본부 화면</a>}
-        <a href={EVERLAND_MAP} target="_blank" rel="noreferrer">🗺️ 에버랜드 지도</a>
-        <a href="#show">슬라이드쇼</a>
-        <button className="link" onClick={onLogout}>코드 다시 입력</button>
+        {session.role !== 'player' && (
+          <>
+            <a href={EVERLAND_MAP} target="_blank" rel="noreferrer">🗺️ 에버랜드 지도</a>
+            <a href="#show">슬라이드쇼</a>
+          </>
+        )}
+        <button className="link" onClick={() => onLogout()}>코드 다시 입력</button>
       </p>
     </main>
+  )
+}
+
+// 버스 퀴즈 화면(아이들 휴대폰, 2026-10-18). 퀴즈 대결과 팀 순위만 있다. 빙고·사진·지도·위치·팀 소개는 없다.
+// 점수는 팀 단위이며, 팀에서 가장 먼저 맞힌 사람(선생님 휴대폰 포함)의 기록이 팀 기록이 된다.
+// 본부가 입장을 닫으면 서버가 EVM_QUIZ_ENDED를 돌려주고, 입장 화면에 "버스 퀴즈가 끝났습니다"가 나온다.
+function PlayerHome({ session, onLeave, onLogout }) {
+  const { code, teamId } = session
+  const team = TEAMS.find((t) => t.id === teamId)
+  const [battleOn, setBattleOn] = useState(false)
+  const [focusQuiz, setFocusQuiz] = useState(null)
+  const { data, online, refresh } = useRemote(code, onLogout, battleOn ? POLL_BATTLE_MS : POLL_GAMES_MS)
+  useEffect(() => setBattleOn(Boolean(liveBattle(data))), [data])
+  const clearFocus = useCallback(() => setFocusQuiz(null), [])
+  useBattleWatch(code, data, teamId)
+
+  useEffect(() => {
+    report('enter', `${team.name} 버스 퀴즈 입장 · 화면 ${window.innerWidth}x${window.innerHeight}`)
+  }, [team.name])
+
+  const total = data ? teamScore(teamId, data, doneByTeam(data.submissions)[teamId]) : null
+
+  return (
+    <div className="app player" style={{ '--team': team.color }}>
+      <header className="top">
+        <button className="team-chip" onClick={() => confirm('팀 선택 화면으로 돌아갑니다.') && onLeave()}>
+          {team.name}
+        </button>
+        <div className="stats">
+          <span>🚌 버스 퀴즈</span>
+          <span className="score"><b>{total?.score ?? 0}</b>점</span>
+        </div>
+      </header>
+      {!online && (
+        <div className="status">
+          <span className="net off">연결 끊김 · 다시 연결되면 이어집니다</span>
+        </div>
+      )}
+      <BattleAlert data={data} teamId={teamId} onOpen={(id) => { setFocusQuiz(id); window.scrollTo(0, 0) }} />
+      <CelebrationLayer teamName={team.name} />
+      <main className="body">
+        <Games
+          code={code}
+          teamId={teamId}
+          data={data}
+          refresh={refresh}
+          focus={focusQuiz}
+          onFocused={clearFocus}
+          intro="본부가 문제를 내면 모든 팀이 함께 풉니다. 팀에서 가장 먼저 맞힌 사람의 기록이 팀 기록이 됩니다. 버스에서는 자리에 앉아서 참여합니다."
+        />
+        {data && (
+          <>
+            <h2 className="section">🏆 팀 순위</h2>
+            <Ranking code={code} data={data} myTeamId={teamId} photos={false} />
+          </>
+        )}
+      </main>
+    </div>
   )
 }
 
@@ -150,34 +250,7 @@ function TeamHome({ session, onLeave, onLogout }) {
   useEffect(() => setBattleOn(Boolean(liveBattle(data))), [data])
   const clearFocus = useCallback(() => setFocusQuiz(null), [])
 
-  // 배틀 결과 알림. 우리 팀이 다른 휴대폰으로 맞혔으면 이 휴대폰에서도 축하하고,
-  // 1등만 받는 배틀은 다른 팀이 가장 먼저 맞혔을 때 누가 맞혔는지 알린다. 1분 넘게 지난 결과는 알리지 않는다.
-  useEffect(() => {
-    if (!data) return
-    const now = serverNow(data)
-    for (const q of data.quizzes) {
-      if (!q.battle) continue
-      const order = battleOrder(data, q.id)
-      const mine = order.findIndex((s) => s.team_id === teamId)
-      if (mine >= 0) {
-        // 우리 팀이 맞혔으면(늦게 맞힌 경우 포함) "다른 팀이 맞혔습니다" 띠가 축하 화면을 덮지 않게 한다.
-        markShown(`win:${q.id}`)
-        if (now - new Date(order[mine].at) < 60000) {
-          celebrate({ key: `quiz:${q.id}`, ...resultLook(q, order[mine].score, mine + 1, TEAMS.find((t) => t.id === order[0].team_id)?.name) })
-        }
-      }
-      const first = order[0]
-      if (q.battle === 'first' && mine < 0 && first && first.team_id !== teamId && now - new Date(first.at) < 60000) {
-        const name = TEAMS.find((t) => t.id === first.team_id)?.name || '다른 팀'
-        // 객관식에서 이미 틀린 팀은 더 답할 수 없으므로 다음 배틀을 안내한다.
-        const tried = data.scores.some((s) => s.team_id === teamId && s.game_id === `quiz:${q.id}`)
-        celebrate({
-          key: `win:${q.id}`, tier: 'rival', title: `${name}이 1등으로 맞혔습니다`,
-          sub: tried ? '다음 배틀을 기다립니다.' : '지금 맞혀도 정답으로 기록됩니다. 점수는 없습니다.',
-        })
-      }
-    }
-  }, [data, teamId])
+  useBattleWatch(code, data, teamId)
   const locate = useLocationShare(code, teamId)
   const locatePing = locate.ping
   // 퀴즈에 답할 때도 위치를 보낸다(위치 공유가 켜져 있을 때만).
@@ -632,6 +705,42 @@ function OrderAlert({ teamId, orders, onOpen }) {
       </div>
     </div>
   )
+}
+
+// 배틀 결과 알림. 우리 팀이 다른 휴대폰으로 맞혔으면 이 휴대폰에서도 축하하고,
+// 1등만 받는 배틀은 다른 팀이 가장 먼저 맞혔을 때 누가 맞혔는지 알린다. 1분 넘게 지난 결과는 알리지 않는다.
+// 그림 배틀은 카운트다운 동안 그림을 미리 받아 둔다(공개 순간에 모든 휴대폰이 한꺼번에 받지 않게).
+function useBattleWatch(code, data, teamId) {
+  const live = liveBattle(data)
+  useEffect(() => {
+    if (live?.kind === 'image') prefetchQuizPhoto(code, live.id)
+  }, [code, live?.id, live?.kind])
+  useEffect(() => {
+    if (!data) return
+    const now = serverNow(data)
+    for (const q of data.quizzes) {
+      if (!q.battle) continue
+      const order = battleOrder(data, q.id)
+      const mine = order.findIndex((s) => s.team_id === teamId)
+      if (mine >= 0) {
+        // 우리 팀이 맞혔으면(늦게 맞힌 경우 포함) "다른 팀이 맞혔습니다" 띠가 축하 화면을 덮지 않게 한다.
+        markShown(`win:${q.id}`)
+        if (now - new Date(order[mine].at) < 60000) {
+          celebrate({ key: `quiz:${q.id}`, ...resultLook(q, order[mine].score, mine + 1, TEAMS.find((t) => t.id === order[0].team_id)?.name) })
+        }
+      }
+      const first = order[0]
+      if (q.battle === 'first' && mine < 0 && first && first.team_id !== teamId && now - new Date(first.at) < 60000) {
+        const name = TEAMS.find((t) => t.id === first.team_id)?.name || '다른 팀'
+        // 객관식에서 이미 틀린 팀은 더 답할 수 없으므로 다음 배틀을 안내한다.
+        const tried = data.scores.some((s) => s.team_id === teamId && s.game_id === `quiz:${q.id}`)
+        celebrate({
+          key: `win:${q.id}`, tier: 'rival', title: `${name}이 1등으로 맞혔습니다`,
+          sub: tried ? '다음 배틀을 기다립니다.' : '지금 맞혀도 정답으로 기록됩니다. 점수는 없습니다.',
+        })
+      }
+    }
+  }, [data, teamId])
 }
 
 // 퀴즈 배틀이 시작되면 화면 전체로 한 번 알린다. 카운트다운을 함께 보여 주고, 누르면 그 문제로 간다.

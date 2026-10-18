@@ -96,6 +96,9 @@ export default function Hq({ session, onLogout }) {
       <header className="hq-top">
         <h1>🎪 본부 <small>하늘씨앗 초등부 2026 가을 야유회</small></h1>
         <span className={online ? 'net' : 'net off'}>{online ? '연결됨' : '연결 끊김'}</span>
+        {data?.quiz_entry && (
+          <button className="entry-chip" onClick={() => setTab('quiz')}>🚌 버스 퀴즈 열림</button>
+        )}
         <LocateButton locate={locate} onOff={() => { setTab('settings'); setMessage('본부 위치 표시가 꺼져 있습니다. 설정 탭의 "위치"에서 켭니다.') }} />
         <a href="#show">슬라이드쇼</a>
         <a href="#">팀 화면</a>
@@ -574,6 +577,8 @@ function QuizAdmin({ code, data, teams, run }) {
         ))}
       </div>
 
+      <BusQuizEntry data={data} run={run} />
+
       <QuizForm key={kind} kind={kind} code={code} run={run} />
 
       <p className="quiz-tools">
@@ -639,6 +644,49 @@ function QuizAdmin({ code, data, teams, run }) {
         })}
       </ul>
     </>
+  )
+}
+
+// 버스 퀴즈 입장(아이들 휴대폰, 2026-10-18). 열면 아이들이 QR이나 코드로 들어와 퀴즈만 풀고,
+// 도착해서 닫으면 아이들 휴대폰은 "버스 퀴즈가 끝났습니다"로 바뀌고 선생님 휴대폰만 남는다.
+function BusQuizEntry({ data, run }) {
+  const on = Boolean(data.quiz_entry)
+  const [copied, setCopied] = useState(false)
+  const url = data.quiz_code ? `${location.origin}${location.pathname}#q=${data.quiz_code}` : ''
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      prompt('입장 주소를 복사합니다.', url)
+    }
+  }
+
+  function toggle() {
+    if (on && !confirm('버스 퀴즈 입장을 닫습니다. 아이들 휴대폰에는 "버스 퀴즈가 끝났습니다"가 나오고, 선생님 휴대폰은 그대로입니다. 닫습니까?')) return
+    run('evm_quiz_entry', { p_on: !on }, on ? '버스 퀴즈 입장을 닫았습니다.' : '버스 퀴즈 입장을 열었습니다. 아이들이 QR이나 코드로 들어올 수 있습니다.')
+  }
+
+  return (
+    <div className={`entry-panel${on ? ' on' : ''}`}>
+      <p className="entry-title">
+        🚌 버스 퀴즈 입장 (아이들 휴대폰) <b className={`status-chip ${on ? 'open' : 'closed'}`}>{on ? '열림' : '닫힘'}</b>
+      </p>
+      <p className="guide">
+        열면 아이들이 QR이나 코드로 들어와 팀을 고르고 퀴즈만 풉니다. 빙고·사진·지도·위치는 볼 수 없습니다.
+        도착하면 닫습니다. 닫으면 아이들 휴대폰에는 "버스 퀴즈가 끝났습니다"가 나오고, 선생님 휴대폰은 그대로입니다.
+      </p>
+      {data.quiz_code ? (
+        <p className="order-meta">
+          코드 <b>{data.quiz_code}</b> · <button className="link" onClick={copy}>{copied ? '복사했습니다' : '입장 주소 복사'}</button>
+        </p>
+      ) : (
+        <p className="error">버스 퀴즈 코드가 등록되지 않았습니다.</p>
+      )}
+      <button className={on ? 'ghost' : 'primary'} disabled={!data.quiz_code} onClick={toggle}>{on ? '입장 닫기' : '입장 열기'}</button>
+    </div>
   )
 }
 

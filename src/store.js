@@ -9,6 +9,11 @@ const stateKey = (teamId) => `evm:v2:state:${teamId}`
 
 export class BadCodeError extends Error {}
 
+// 버스 퀴즈 입장(아이들 휴대폰, 2026-10-18) 문구. 퀴즈를 하던 중에 본부가 닫으면 ENDED,
+// 닫혀 있을 때 QR이나 코드로 들어오려 하면 CLOSED(아직 열리기 전일 수도 있다).
+export const QUIZ_ENDED_TEXT = '버스 퀴즈가 끝났습니다. 현장에서는 선생님 휴대폰으로 진행합니다.'
+export const QUIZ_CLOSED_TEXT = '버스 퀴즈 입장이 닫혀 있습니다. 선생님이 입장을 열면 QR을 다시 찍습니다.'
+
 // 점검 보고. 접속과 오류를 서버에 남겨 시험·행사 중 문제를 추적한다.
 // 같은 내용은 1분에 한 번만, 한 화면에서 최대 40건까지 보낸다. 통신이 끊겼을 때의 보고는 모아 두었다가 연결되면 보낸다.
 const reported = new Map()
@@ -72,6 +77,12 @@ async function rpcRead(fn, res) {
       message = JSON.parse(text).message || text
     } catch {
       /* JSON이 아닌 오류 본문은 그대로 사용한다 */
+    }
+    if (String(message).includes('EVM_QUIZ_ENDED')) {
+      // 본부가 버스 퀴즈 입장을 닫았다. 아이들 휴대폰 수십 대가 보내므로 점검 기록에는 남기지 않는다.
+      const err = new BadCodeError(QUIZ_ENDED_TEXT)
+      err.ended = true
+      throw err
     }
     report('rpc', `${fn}: ${String(message).slice(0, 200)}`)
     if (String(message).includes('EVM_BAD_CODE')) throw new BadCodeError('코드가 맞지 않습니다.')

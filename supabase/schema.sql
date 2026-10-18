@@ -118,22 +118,52 @@ alter table evm_submissions enable row level security;
 alter table evm_notices enable row level security;
 alter table evm_checkins enable row level security;
 
--- 코드가 맞으면 'team' 또는 'admin', 틀리면 null
+-- 코드가 맞으면 'team' 또는 'admin', 틀리면 null.
+-- 버스 퀴즈 코드(quiz_code, 2026-10-18)는 본부가 입장을 열어 둔 동안(quiz_open = on) 'player', 닫으면 'ended'.
+-- player는 아이들 휴대폰용으로 퀴즈만 보고 답할 수 있다(evm_require_quiz를 쓰는 함수만).
 create or replace function evm_login(p_code text) returns text
 language sql stable security definer set search_path = public as $$
   select case
     when p_code = (select value from evm_config where key = 'admin_code') then 'admin'
     when p_code = (select value from evm_config where key = 'join_code') then 'team'
+    when p_code = (select value from evm_config where key = 'quiz_code') then
+      case when coalesce((select value from evm_config where key = 'quiz_open'), 'off') = 'on' then 'player' else 'ended' end
   end
 $$;
 
+-- 선생님(팀)·본부 코드만 통과한다. 버스 퀴즈 코드(player)는 사진·빙고·위치·팀 소개 함수를 쓸 수 없다.
 create or replace function evm_require(p_code text, p_admin boolean default false) returns void
 language plpgsql stable security definer set search_path = public as $$
 declare v_role text := evm_login(p_code);
 begin
-  if v_role is null or (p_admin and v_role <> 'admin') then
+  if v_role = 'ended' then
+    raise exception 'EVM_QUIZ_ENDED' using errcode = 'P0001';
+  end if;
+  if v_role is null or v_role = 'player' or (p_admin and v_role <> 'admin') then
     raise exception 'EVM_BAD_CODE' using errcode = 'P0001';
   end if;
+end $$;
+
+-- 퀴즈 함수(상태 보기·답안·그림)용. 버스 퀴즈 코드도 통과한다. 입장이 닫혔으면 EVM_QUIZ_ENDED.
+create or replace function evm_require_quiz(p_code text) returns void
+language plpgsql stable security definer set search_path = public as $$
+declare v_role text := evm_login(p_code);
+begin
+  if v_role = 'ended' then
+    raise exception 'EVM_QUIZ_ENDED' using errcode = 'P0001';
+  end if;
+  if v_role is null then
+    raise exception 'EVM_BAD_CODE' using errcode = 'P0001';
+  end if;
+end $$;
+
+-- 버스 퀴즈 입장 열기·닫기(본부). 닫으면 아이들 휴대폰은 다음 갱신 때 "버스 퀴즈가 끝났습니다"로 바뀐다.
+create or replace function evm_quiz_entry(p_code text, p_on boolean) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform evm_require(p_code, true);
+  insert into evm_config (key, value) values ('quiz_open', case when p_on then 'on' else 'off' end)
+  on conflict (key) do update set value = excluded.value;
 end $$;
 
 -- 전체 상태(사진 본문 제외). 화면이 주기적으로 부른다.
@@ -144,8 +174,12 @@ declare
   v_see_where boolean := evm_login(p_code) = 'admin'
     or coalesce((select value from evm_config where key = 'share_locations'), 'off') = 'on';
   v_admin boolean := evm_login(p_code) = 'admin';
+  v_player boolean := evm_login(p_code) = 'player'; -- 버스 퀴즈로 들어온 아이 휴대폰: 위치는 보내지 않는다
 begin
-  perform evm_require(p_code);
+  perform evm_require_quiz(p_code);
+  if v_player then
+    v_see_where := false;
+  end if;
   return json_build_object(
     'submissions', coalesce((
       select json_agg(json_build_object(
@@ -183,12 +217,14 @@ begin
       select json_agg(json_build_object('team_id', team_id, 'device', device, 'holder', holder,
         'lat', lat, 'lng', lng, 'acc', acc, 'at', updated_at))
       from evm_locations
-      where evm_login(p_code) = 'admin'
-         or coalesce((select value from evm_config where key = 'share_locations'), 'off') = 'on'), '[]'::json),
+      where v_see_where), '[]'::json),
     'splits', coalesce((
       select json_agg(json_build_object('team_id', team_id, 'since', since)) from evm_splits
       where together_at is null or together_at > now() - interval '5 minutes'), '[]'::json),
     'team_count', coalesce((select value::int from evm_config where key = 'team_count'), 6),
+    -- 버스 퀴즈 입장 상태와 코드는 본부에만 보낸다(본부 화면에 표시)
+    'quiz_entry', case when v_admin then coalesce((select value from evm_config where key = 'quiz_open'), 'off') = 'on' end,
+    'quiz_code', case when v_admin then (select value from evm_config where key = 'quiz_code') end,
     'now', now()
   );
 end $$;
@@ -445,13 +481,14 @@ begin
   values ('act', '사진 속 팀이 몸으로 표현한 것은 무엇입니까?', left(btrim(p_answer), 40), p_photo, p_team, 'pending');
 end $$;
 
+-- 퀴즈 그림. 배틀 문제는 카운트다운 동안 미리 받아 두고 공개 시각에 보여 준다(버스 통신이 느려도 팀마다 그림이 늦게 뜨지 않게).
+-- 문제 내용(body)은 공개 시각 전에는 보내지 않는다(evm_state).
 create or replace function evm_quiz_photo(p_code text, p_id bigint) returns text
 language plpgsql stable security definer set search_path = public as $$
 begin
-  perform evm_require(p_code);
+  perform evm_require_quiz(p_code);
   return (select photo from evm_quizzes
-          where id = p_id and (evm_login(p_code) = 'admin'
-            or (status in ('open', 'closed') and (starts_at is null or starts_at <= now()))));
+          where id = p_id and (evm_login(p_code) = 'admin' or status in ('open', 'closed')));
 end $$;
 
 -- 답안 제출과 채점. 객관식은 한 번만, 나머지는 맞힐 때까지 낼 수 있다.
@@ -461,7 +498,7 @@ create or replace function evm_quiz_answer(p_code text, p_team int, p_id bigint,
 language plpgsql security definer set search_path = public as $$
 declare q evm_quizzes%rowtype; v_ok boolean; v_choice boolean; v_points int := 0; v_rank int;
 begin
-  perform evm_require(p_code);
+  perform evm_require_quiz(p_code);
   -- 문제 행을 잠가 같은 문제의 답안을 하나씩 처리한다(배틀 순위가 겹치지 않게).
   select * into q from evm_quizzes where id = p_id and status = 'open' for update;
   if not found then
@@ -740,7 +777,7 @@ begin
   delete from evm_quizzes where kind = 'act';
 end $$;
 
-revoke all on function evm_require(text, boolean) from public, anon, authenticated;
+revoke all on function evm_require(text, boolean), evm_require_quiz(text) from public, anon, authenticated;
 revoke all on function evm_team_apart(int), evm_split_update(int) from public, anon, authenticated;
 grant execute on function
   evm_login(text), evm_state(text), evm_submit(text, int, text, text), evm_remove(text, int, text),
@@ -753,6 +790,7 @@ grant execute on function
   evm_team_set(text, int, text, text), evm_team_photo(text, int),
   evm_report(int, text, text, text), evm_events_list(text), evm_events_clear(text),
   evm_quiz_add(text, text, text, json, text, text, int, boolean, text, text), evm_quiz_battle_start(text, bigint, int),
+  evm_quiz_entry(text, boolean),
   evm_quiz_seed(text, json), evm_quiz_set(text, bigint, text),
   evm_quiz_open_all(text, text), evm_quiz_delete(text, bigint), evm_act_submit(text, int, text, text),
   evm_quiz_photo(text, bigint), evm_quiz_answer(text, int, bigint, text, boolean),
