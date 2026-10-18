@@ -68,12 +68,13 @@ export function battleOrder(data, quizId) {
     .sort((a, b) => new Date(a.at) - new Date(b.at))
 }
 
-// 배틀 규칙 한 줄(예: "선착순 · 맞힌 순서대로 30·20·10점, 그 뒤는 5점"). 버스 팀 대항은 1/5 점수(6·4·2점, 그 뒤 1점)다.
+// 배틀 규칙 한 줄(예: "선착순 · 맞힌 순서대로 30·20·10점, 4등부터 5점 · 틀리면 0점"). 버스 팀 대항은 1/5 점수(6·4·2점, 4등부터 1점)다.
+// 4등부터의 점수도 맞혀야 받는다. "그 뒤는 1점"이 "못 맞혀도 1점"으로 읽힌 일이 있어(2026-10-18) 틀리면 0점을 함께 적는다.
 export function battleRule(quiz) {
   if (quiz.round === 'ot') return '점수 없이 모두 함께 답합니다'
   const b = BATTLES.find((x) => x.id === quiz.battle)
   if (!b) return ''
-  if (b.id === 'rush' && quiz.round === 'bus') return `${b.title} · 맞힌 순서대로 6·4·2점, 그 뒤는 1점`
+  if (b.id === 'rush' && quiz.round === 'bus') return `${b.title} · 맞힌 순서대로 6·4·2점, 4등부터 1점 · 틀리면 0점`
   return `${b.title} · ${b.rule(quiz.points)}`
 }
 

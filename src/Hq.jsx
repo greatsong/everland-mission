@@ -434,7 +434,7 @@ function OrderForm({ run }) {
       </div>
       <p className="guide">
         {rush
-          ? '먼저 완료한 순서대로 30·20·10점, 그 뒤는 5점입니다. 뛰지 않도록 제자리에서 할 수 있는 내용으로 냅니다.'
+          ? '먼저 완료한 순서대로 30·20·10점, 4등부터 5점입니다. 뛰지 않도록 제자리에서 할 수 있는 내용으로 냅니다.'
           : '빙고 칸 하나가 10점, 빙고 한 줄이 30점입니다. 시간이 걸리거나 어려운 미션일수록 점수를 높입니다.'}
       </p>
 
@@ -773,7 +773,7 @@ function BusBoard({ code, data, teams, run }) {
           <h3>📚 OT · 점수 없음</h3>
           {ot.map((q) => <BusRow key={q.id} q={q} stage={stage(q)} current={current} onStart={start} run={run} data={data} />)}
           <button className="link" onClick={() => openAdd('ot')}>+ OT 문제 추가</button>
-          <h3>⚡ 팀 대항 · 6·4·2점</h3>
+          <h3>⚡ 팀 대항 · 6·4·2·1점</h3>
           {bus.map((q) => <BusRow key={q.id} q={q} stage={stage(q)} current={current} onStart={start} run={run} data={data} />)}
           {!bus.length && <p className="hint">아직 팀 대항 문제가 없습니다.</p>}
           <button className="link" onClick={() => openAdd('bus')}>+ 팀 대항 문제 추가</button>
@@ -1145,7 +1145,7 @@ function QuizForm({ kind, code, run, round = null, onAdded }) {
 
         {round ? (
           <div className="composer-actions">
-            {round === 'bus' && <p className="hint">⚡ 선착순 · 맞힌 순서대로 6·4·2점, 그 뒤는 1점</p>}
+            {round === 'bus' && <p className="hint">⚡ 선착순 · 맞힌 순서대로 6·4·2점, 4등부터 1점 · 틀리면 0점</p>}
             <button type="button" className="primary" disabled={!args || busy} onClick={() => submit(false)}>{busy ? '넣는 중입니다' : '진행판에 문제 추가'}</button>
           </div>
         ) : (

@@ -50,7 +50,7 @@ export const QUIZ_KINDS = [
 // 퀴즈 배틀(선착순). 문제마다 본부가 방식을 고르고, 맞힌 순서는 서버가 답을 받은 순서로 정한다.
 // rush는 타임어택 지령과 같은 규칙(logic.js의 RUSH_POINTS), first는 가장 먼저 맞힌 팀만 문제 점수를 받는다.
 export const BATTLES = [
-  { id: 'rush', title: '선착순', rule: () => '맞힌 순서대로 30·20·10점, 그 뒤는 5점' },
+  { id: 'rush', title: '선착순', rule: () => '맞힌 순서대로 30·20·10점, 4등부터 5점 · 틀리면 0점' },
   { id: 'first', title: '1등만', rule: (points) => `가장 먼저 맞힌 팀만 ${points}점` },
 ]
 // 배틀 문제를 공개하기까지 기다리는 시간(초). 본부가 시작할 때 고른다.
