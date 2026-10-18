@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { TEAMS, MISSIONS } from './data.js'
+import { TEAMS } from './data.js'
 import { rpc, report, QUIZ_CLOSED_TEXT } from './store.js'
 import { useRemote, teamsOf, deviceId, prefetchQuizPhoto, useTeamsView } from './shared.jsx'
 import { teacherNames, teacherLabel, liveBattle, battleOrder, serverNow, busRanking, busPoints, currentBusQuestion, busList, josa } from './logic.js'
 import { QuizCard, answerOf } from './Games.jsx'
-import { CelebrationLayer, celebrate, resultLook, markShown } from './celebrate.jsx'
+import { CelebrationLayer, celebrate, mateLook, markShown, answering } from './celebrate.jsx'
 
 // 버스 퀴즈(아이들 휴대폰, 2026-10-18 개편). 입장(이름·팀) → 대기실 → OT(아이마다 답하고 점수 없음) → 팀 대항 → 결과.
 // 화면은 본부가 연 문제 하나만 보여 준다(목록 없음). 본부가 입장을 닫으면 결과 화면으로 바뀐다.
@@ -15,7 +15,7 @@ const POLL_BUS_MS = 5000 // 그 밖(대기실·OT)
 
 const teamName = (id) => TEAMS.find((t) => t.id === id)?.name || `${id}팀`
 
-// 배틀 결과 알림. 우리 팀이 다른 휴대폰으로 맞혔으면 이 휴대폰에서도 축하하고(맞힌 사람 이름과 함께),
+// 배틀 결과 알림. 우리 팀이 다른 휴대폰으로 맞혔으면 화면을 가리지 않는 위쪽 띠로 알리고(맞힌 사람 이름과 함께),
 // 1등만 받는 배틀은 다른 팀이 가장 먼저 맞혔을 때 누가 맞혔는지 알린다. 1분 넘게 지난 결과는 알리지 않는다.
 // 그림 배틀은 카운트다운 동안 그림을 미리 받아 둔다(공개 순간에 모든 휴대폰이 한꺼번에 받지 않게).
 export function useBattleWatch(code, data, teamId) {
@@ -33,9 +33,10 @@ export function useBattleWatch(code, data, teamId) {
       if (mine >= 0) {
         // 우리 팀이 맞혔으면(늦게 맞힌 경우 포함) "다른 팀이 맞혔습니다" 띠가 축하 화면을 덮지 않게 한다.
         markShown(`win:${q.id}`)
-        if (now - new Date(order[mine].at) < 60000) {
+        // 이 휴대폰이 맞혔으면 QuizCard가 이미 큰 축하를 띄웠다(같은 key라 다시 뜨지 않는다).
+        if (now - new Date(order[mine].at) < 60000 && !answering.has(q.id)) {
           const who = order[mine].who && order[mine].who !== '선생님' ? order[mine].who : null
-          celebrate({ key: `quiz:${q.id}`, ...resultLook(q, order[mine].score, mine + 1, teamName(order[0].team_id), who) })
+          celebrate({ key: `quiz:${q.id}`, ...mateLook(q, order[mine].score, mine + 1, who) })
         }
       }
       const first = order[0]
@@ -156,7 +157,7 @@ function BusStatusBar({ data, current, teamId, teams }) {
   )
 }
 
-// 2. 대기실: 다음에 할 일, 함께 들어온 우리 팀, 에버랜드 미션 미리 보기(기대감)
+// 2. 대기실: 다음에 할 일, 함께 들어온 우리 팀(미션 미리 보기는 2026-10-18 사용자 요청으로 뺐다)
 function BusLobby({ data, teamId }) {
   const ot = busList(data, 'ot')
   const bus = busList(data, 'bus')
@@ -197,11 +198,6 @@ function BusLobby({ data, teamId }) {
             <span key={`${p.name}:${i}`} className="av"><i>{[...p.name][0]}</i>{p.name}</span>
           ))}
         </div>
-      </div>
-      <div className="card">
-        <p className="hint">에버랜드에서 할 미션 미리 보기</p>
-        <div className="tiles">{MISSIONS.slice(0, 8).map((m) => <span key={m.id} title={m.title}>{m.icon}</span>)}</div>
-        <p className="hint">빙고 16칸 · 본부 지령 · 퀴즈 대결</p>
       </div>
     </>
   )

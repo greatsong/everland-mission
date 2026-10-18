@@ -511,6 +511,41 @@ begin
   on conflict (device) do update set team_id = excluded.team_id, name = excluded.name;
 end $$;
 
+-- 문제 고치기(본부, 2026-10-18). 문장·정답·힌트·설명(객관식은 선택지)을 바로 고친다. 그림·점수·배틀 방식·상태는 그대로다.
+-- 이미 받은 답은 다시 채점하지 않는다(화면이 미리 알린다).
+create or replace function evm_quiz_edit(p_code text, p_id bigint, p_body text, p_answer text, p_hint text, p_note text,
+  p_choices json default null) returns void
+language plpgsql security definer set search_path = public as $$
+declare q evm_quizzes%rowtype;
+begin
+  perform evm_require(p_code, true);
+  select * into q from evm_quizzes where id = p_id;
+  if not found or coalesce(btrim(p_body), '') = '' or coalesce(btrim(p_answer), '') = '' then
+    raise exception 'EVM_BAD_QUIZ' using errcode = 'P0001';
+  end if;
+  if q.kind = 'ox' and upper(btrim(p_answer)) not in ('O', 'X') then
+    raise exception 'EVM_BAD_QUIZ' using errcode = 'P0001';
+  end if;
+  update evm_quizzes set
+    body = left(btrim(p_body), 300),
+    answer = case when q.kind = 'ox' then upper(btrim(p_answer)) else btrim(p_answer) end,
+    hint = nullif(btrim(coalesce(p_hint, '')), ''),
+    note = nullif(left(btrim(coalesce(p_note, '')), 400), ''),
+    choices = case when q.choices is not null and p_choices is not null then p_choices else q.choices end
+  where id = p_id;
+end $$;
+
+-- 버스 퀴즈 처음부터 다시(본부, 리허설용). 버스 문제를 시작 전으로 되돌리고 OT 응답과 버스 점수만 지운다.
+-- 입장자(아이들 이름·팀)와 현장 기록(사진·지령·현장 퀴즈 점수)은 그대로 둔다.
+create or replace function evm_bus_reset(p_code text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform evm_require(p_code, true);
+  delete from evm_answers where true;
+  delete from evm_scores where game_id in (select 'quiz:' || id from evm_quizzes where round is not null);
+  update evm_quizzes set status = 'draft', starts_at = null where round is not null;
+end $$;
+
 -- 입장자 한 명 내보내기(본부, 부적절한 이름 등). 그 휴대폰은 다시 입장해야 답할 수 있다.
 create or replace function evm_player_remove(p_code text, p_device text) returns void
 language plpgsql security definer set search_path = public as $$
@@ -950,6 +985,7 @@ grant execute on function
   evm_report(int, text, text, text), evm_events_list(text), evm_events_clear(text),
   evm_quiz_add(text, text, text, json, text, text, int, boolean, text, text, text, text), evm_quiz_battle_start(text, bigint, int),
   evm_bus_start(text, bigint, int), evm_player_join(text, text, int, text), evm_player_remove(text, text), evm_bus_forget(text),
+  evm_quiz_edit(text, bigint, text, text, text, text, json), evm_bus_reset(text),
   evm_quiz_entry(text, boolean),
   evm_quiz_seed(text, json), evm_quiz_set(text, bigint, text),
   evm_quiz_open_all(text, text), evm_quiz_delete(text, bigint), evm_act_submit(text, int, text, text),

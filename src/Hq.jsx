@@ -557,6 +557,7 @@ function useTick(active) {
 function QuizAdmin({ code, data, teams, run }) {
   const [kind, setKind] = useState('chosung')
   const [busyId, setBusyId] = useState(null) // 배틀 시작을 보내는 중인 문제(두 번 누르지 않게)
+  const [editId, setEditId] = useState(null) // 고치는 중인 문제
   // 버스 문제(OT·팀 대항)는 버스 퀴즈 탭의 진행판에서 다룬다.
   const list = data.quizzes.filter((q) => q.kind === kind && !q.round)
   // 배틀 문제는 카운트다운으로만 시작하므로 "모두 출제"에서 뺀다(서버도 뺀다).
@@ -630,7 +631,9 @@ function QuizAdmin({ code, data, teams, run }) {
                       .join(' · ')}
                   </p>
                 )}
+                {editId === q.id && <QuizEdit q={q} data={data} run={run} onDone={() => setEditId(null)} />}
                 <p className="quiz-tools">
+                  <button className="link" onClick={() => setEditId(editId === q.id ? null : q.id)}>고치기</button>
                   {q.battle && q.status !== 'open' &&
                     BATTLE_SECONDS.map((sec) => (
                       <button key={sec} className="link" disabled={busyId === q.id} onClick={() => startBattle(q, sec)}>
@@ -768,12 +771,16 @@ function BusBoard({ code, data, teams, run }) {
       <div className="bus-grid">
         <section className="bus-col">
           <h3>📚 OT · 점수 없음</h3>
-          {ot.map((q) => <BusRow key={q.id} q={q} stage={stage(q)} current={current} onStart={start} run={run} />)}
+          {ot.map((q) => <BusRow key={q.id} q={q} stage={stage(q)} current={current} onStart={start} run={run} data={data} />)}
           <button className="link" onClick={() => openAdd('ot')}>+ OT 문제 추가</button>
           <h3>⚡ 팀 대항 · 6·4·2점</h3>
-          {bus.map((q) => <BusRow key={q.id} q={q} stage={stage(q)} current={current} onStart={start} run={run} />)}
+          {bus.map((q) => <BusRow key={q.id} q={q} stage={stage(q)} current={current} onStart={start} run={run} data={data} />)}
           {!bus.length && <p className="hint">아직 팀 대항 문제가 없습니다.</p>}
           <button className="link" onClick={() => openAdd('bus')}>+ 팀 대항 문제 추가</button>
+          <button className="link bus-reset"
+            onClick={() => confirm('버스 퀴즈를 처음부터 다시 합니까? 버스 문제가 모두 시작 전으로 돌아가고 OT 응답과 버스 점수가 지워집니다. 입장한 아이들과 현장 기록은 그대로입니다.') && run('evm_bus_reset', {}, '버스 퀴즈를 처음 상태로 되돌렸습니다.')}>
+            ↺ 처음부터 다시(리허설 뒤)
+          </button>
         </section>
 
         <section className="bus-col bus-now">
@@ -848,18 +855,93 @@ function BusBoard({ code, data, teams, run }) {
   )
 }
 
-// 진행판 목록 한 줄: 상태, 문제, 시작·삭제
-function BusRow({ q, stage, current, onStart, run }) {
+// 문제 고치기(본부, 2026-10-18). 문장·정답·힌트·설명(객관식은 선택지)을 바로 고친다. 그림·점수·방식은 그대로다.
+// 초성 퀴즈는 정답을 고치면 초성 문제도 다시 만든다. 이미 받은 답은 다시 채점하지 않는다.
+function QuizEdit({ q, data, run, onDone }) {
+  const isChoice = Array.isArray(q.choices)
+  const prefix = q.body.startsWith('[시험] ') ? '[시험] ' : ''
+  const [body, setBody] = useState(q.body)
+  const [answer, setAnswer] = useState(q.answer || '')
+  const [choices, setChoices] = useState(q.choices || [])
+  const [hint, setHint] = useState(q.hint || '')
+  const [note, setNote] = useState(q.note || '')
+  const [busy, setBusy] = useState(false)
+  const answered = data.scores.some((s) => s.game_id === `quiz:${q.id}`) || (data.ot_stats || []).some((s) => s.quiz_id === q.id)
+  const hasHint = q.kind === 'chosung' || q.kind === 'image'
+  const ok = answer.trim() && (q.kind === 'chosung' || body.trim()) && (!isChoice || choices.every((c) => c.trim()))
+
+  async function save() {
+    if (!ok || busy) return
+    setBusy(true)
+    const done = await run('evm_quiz_edit', {
+      p_id: q.id,
+      p_body: q.kind === 'chosung' ? prefix + toChosung(answer.trim()) : body.trim(),
+      p_answer: answer.trim(), p_hint: hint.trim() || null, p_note: note.trim() || null,
+      p_choices: isChoice ? choices.map((c) => c.trim()) : null,
+    }, '문제를 고쳤습니다.')
+    setBusy(false)
+    if (done) onDone()
+  }
+
+  return (
+    <div className="quiz-edit">
+      {q.kind !== 'chosung' && (
+        <label className="field"><span>문제</span>
+          <textarea rows={2} value={body} onChange={(e) => setBody(e.target.value)} maxLength={300} /></label>
+      )}
+      {q.kind === 'ox' ? (
+        <div className="field"><span>정답</span>
+          <div className="seg">
+            <button type="button" className={answer === 'O' ? 'on' : ''} onClick={() => setAnswer('O')}>⭕ O (맞다)</button>
+            <button type="button" className={answer === 'X' ? 'on' : ''} onClick={() => setAnswer('X')}>❌ X (틀리다)</button>
+          </div>
+        </div>
+      ) : isChoice ? (
+        <div className="field"><span>선택지 (정답인 칸의 동그라미를 고릅니다)</span>
+          {choices.map((c, i) => (
+            <label key={i} className={`choice-row ${answer === String(i) ? 'correct' : ''}`}>
+              <input type="radio" name={`edit-${q.id}`} checked={answer === String(i)} onChange={() => setAnswer(String(i))} aria-label={`${i + 1}번을 정답으로`} />
+              <input value={c} onChange={(e) => setChoices(choices.map((x, k) => (k === i ? e.target.value : x)))} maxLength={60} aria-label={`선택지 ${i + 1}`} />
+            </label>
+          ))}
+        </div>
+      ) : (
+        <label className="field"><span>정답{q.kind === 'chosung' ? ' (초성 문제는 정답에서 다시 만듭니다)' : ''}</span>
+          <input value={answer} onChange={(e) => setAnswer(e.target.value)} maxLength={60} />
+          <small>띄어쓰기는 채점에서 무시합니다. 정답이 여러 개면 쉼표로 적습니다.</small></label>
+      )}
+      {hasHint && (
+        <label className="field"><span>힌트 (선택)</span>
+          <input value={hint} onChange={(e) => setHint(e.target.value)} maxLength={100} /></label>
+      )}
+      <label className="field"><span>설명 (선택)</span>
+        <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} maxLength={400} /></label>
+      {answered && <p className="hint">이미 답한 기록이 있습니다. 고쳐도 이미 받은 답은 다시 채점하지 않습니다.</p>}
+      <div className="composer-actions">
+        <button type="button" className="ghost" onClick={onDone}>취소</button>
+        <button type="button" className="primary" disabled={!ok || busy} onClick={save}>{busy ? '고치는 중입니다' : '고친 내용 저장'}</button>
+      </div>
+    </div>
+  )
+}
+
+// 진행판 목록 한 줄: 상태, 문제, 시작·고치기·삭제
+function BusRow({ q, stage, current, onStart, run, data }) {
+  const [editing, setEditing] = useState(false)
   const now = current?.id === q.id
   const state = now ? 'now' : q.status === 'closed' ? 'done' : ''
   return (
-    <div className={`qrow ${state}`}>
-      <span className="dot" />
-      <span className="qrow-body">{quizIcon(q)} {q.body}</span>
-      {!now && <button className="link" onClick={() => onStart(q)}>{q.status === 'closed' ? '다시' : '시작'}</button>}
-      <button className="link" aria-label={`${stage} 삭제`}
-        onClick={() => confirm('이 문제를 삭제합니까? 이 문제로 받은 점수와 응답도 함께 지워집니다.') && run('evm_quiz_delete', { p_id: q.id }, '삭제했습니다.')}>✕</button>
-    </div>
+    <>
+      <div className={`qrow ${state}`}>
+        <span className="dot" />
+        <span className="qrow-body">{quizIcon(q)} {q.body}</span>
+        {!now && <button className="link" onClick={() => onStart(q)}>{q.status === 'closed' ? '다시' : '시작'}</button>}
+        <button className="link" aria-label={`${stage} 고치기`} onClick={() => setEditing(!editing)}>✎</button>
+        <button className="link" aria-label={`${stage} 삭제`}
+          onClick={() => confirm('이 문제를 삭제합니까? 이 문제로 받은 점수와 응답도 함께 지워집니다.') && run('evm_quiz_delete', { p_id: q.id }, '삭제했습니다.')}>✕</button>
+      </div>
+      {editing && <QuizEdit q={q} data={data} run={run} onDone={() => setEditing(false)} />}
+    </>
   )
 }
 

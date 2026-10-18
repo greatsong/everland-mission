@@ -4,6 +4,8 @@ import { josa } from './logic.js'
 // 정답 축하 효과(2026-10-17, UI/UX 검토 반영 2026-10-18). 상황에 따라 크기를 다르게 한다.
 // 배틀 1등(gold)이 가장 크고 2등(silver)·3등(bronze)·그 밖의 정답(ok)·늦은 정답(late) 순서로 작아진다.
 // 1등만 받는 배틀에서 다른 팀이 맞히면 화면을 막지 않는 위쪽 띠(rival)로 소리 없이 알린다.
+// 같은 팀의 다른 휴대폰(다른 친구·다른 선생님)이 맞혔을 때도 화면을 가리지 않는 위쪽 띠(mate)로만 알린다(2026-10-18 사용자 요청).
+// 큰 축하는 답을 보낸 그 휴대폰에만 띄운다.
 // 아이폰은 진동이 되지 않고 무음이면 소리도 나지 않으므로, 화면(불투명 배경·점수 숫자·팀 이름)만으로도 구분되게 한다.
 // 화면을 흔들거나 번쩍이는 효과는 넣지 않는다(버스 멀미, 광과민).
 
@@ -15,6 +17,7 @@ const LOOKS = {
   ok: { icon: '🎉', confetti: 25, mode: 'burst', ms: 2500, hold: 400, vibrate: [150], sound: true },
   late: { icon: '✅', confetti: 15, mode: 'burst', ms: 3000, hold: 400, vibrate: [80], sound: true },
   rival: { icon: '🏁', confetti: 0, ms: 4500, hold: 0, vibrate: [40], sound: false },
+  mate: { icon: '🎉', confetti: 0, ms: 4000, hold: 0, vibrate: [40], sound: false },
 }
 
 // 채점 결과로 축하 모양을 정한다. points와 rank는 서버가 돌려준 값, winner는 1등 팀 이름(1등만 배틀에서 늦게 맞혔을 때),
@@ -36,6 +39,16 @@ const listeners = new Set()
 const shown = new Set() // 이미 알린 것(같은 문제를 두 번 축하하지 않는다)
 
 export const markShown = (key) => shown.add(key)
+// 이 휴대폰이 답을 보내는 중인 문제. 채점 응답보다 상태가 먼저 와도 띠(mate)가 큰 축하를 가로채지 않게 한다.
+export const answering = new Set()
+
+// 같은 팀 다른 휴대폰이 맞혔을 때의 띠 알림 내용. rank·points는 서버 기록, who는 맞힌 사람 이름(없으면 선생님 휴대폰).
+export function mateLook(quiz, points, rank, who) {
+  const icon = quiz.battle && points > 0 ? ['🏆', '🥈', '🥉'][rank - 1] || '🎉' : '🎉'
+  const title = who ? `${josa(who)} 맞혔습니다` : '우리 팀이 맞혔습니다'
+  const sub = quiz.battle && points > 0 ? `${rank}등 · +${points}점` : points > 0 ? `+${points}점` : '정답으로 기록되었습니다'
+  return { tier: 'mate', icon, title, sub }
+}
 
 // 축하를 띄운다. key가 같으면 한 번만 띄운다. detail: { key, tier, title, points, sub, note }
 export function celebrate(detail) {
@@ -236,13 +249,13 @@ export function CelebrationLayer({ teamName }) {
   }, [item])
   if (!item) return null
   const look = LOOKS[item.tier] || LOOKS.ok
-  const banner = item.tier === 'rival'
+  const banner = item.tier === 'rival' || item.tier === 'mate'
   return (
     <div className={`celebrate ${item.tier}`} onClick={() => closable && setItem(null)} role="alert">
       {look.confetti > 0 && <Confetti key={item.id} count={look.confetti} mode={look.mode} />}
       <div className="celebrate-box">
         {look.team && teamName && <p className="celebrate-team">{teamName}</p>}
-        <p className="celebrate-icon">{look.icon}</p>
+        <p className="celebrate-icon">{item.icon || look.icon}</p>
         <div className="celebrate-text">
           <p className="celebrate-title">{item.title}</p>
           {item.points > 0 && (

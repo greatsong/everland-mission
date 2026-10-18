@@ -3,7 +3,7 @@ import { QUIZ_KINDS, TEAMS } from './data.js'
 import { rpc } from './store.js'
 import { scoreOk, battleOrder, battleRule, serverNow } from './logic.js'
 import { QuizImage, deviceId } from './shared.jsx'
-import { celebrate, markShown, resultLook, unlockAudio, countdownSound } from './celebrate.jsx'
+import { celebrate, markShown, resultLook, unlockAudio, countdownSound, answering } from './celebrate.jsx'
 
 // 전체 대결 퀴즈. 문제는 본부가 출제하고 서버가 채점한다.
 // 몸으로 말해요(팀 출제)는 2026-10-12에 뺐다. 서버 함수 evm_act_submit은 남아 있다.
@@ -213,6 +213,7 @@ export function QuizCard({ code, teamId, quiz, data, result, refresh, onNext, wh
     if (isOx) setPicked(value)
     setBusy(true)
     setMessage('')
+    answering.add(quiz.id)
     try {
       const res = await rpc('evm_quiz_answer', {
         p_code: code, p_team: teamId, p_id: quiz.id, p_text: value, p_hint: hint, p_name: who || null, p_device: deviceId(),
@@ -238,6 +239,7 @@ export function QuizCard({ code, teamId, quiz, data, result, refresh, onNext, wh
       setMessage(errorText(err))
       refresh()
     } finally {
+      answering.delete(quiz.id)
       setBusy(false)
     }
   }

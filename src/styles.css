@@ -567,3 +567,13 @@ button.ox:disabled { cursor: default; }
 /* 팀 선택: 선생님 이름 줄의 높이를 미리 잡아 두어 이름이 들어와도 버튼 크기가 바뀌지 않게 한다 */
 .team-btn small { min-height: 1.35em; }
 .team-loading { min-height: 260px; display: flex; align-items: center; justify-content: center; color: var(--muted); }
+/* 문제 고치기(본부) */
+.quiz-edit { display: flex; flex-direction: column; gap: 10px; padding: 12px; margin: 2px 0 6px; border-radius: 12px; border: 2px solid #f59f00; background: #fffbeb; width: 100%; }
+.bus-reset { margin-top: 8px; color: var(--muted); }
+/* 같은 팀 다른 휴대폰이 맞혔을 때: 화면을 가리지 않는 위쪽 띠(팀 색) */
+.celebrate.mate { inset: auto 12px auto; top: calc(env(safe-area-inset-top) + 64px); display: block; padding: 0; background: none; pointer-events: none; }
+.celebrate.mate .celebrate-box { width: 100%; max-width: 456px; margin: 0 auto; display: flex; align-items: center; gap: 12px; text-align: left; padding: 10px 16px; background: #fff; border: 3px solid var(--team, #2f9e44); box-shadow: 0 6px 18px rgba(0,0,0,.18); animation: banner-in 0.3s ease-out; }
+.celebrate.mate .celebrate-icon { font-size: 30px; }
+.celebrate.mate .celebrate-title { font-size: 17px; color: #111; }
+.celebrate.mate .celebrate-sub { margin-top: 2px; font-size: 14px; font-weight: 600; color: #555; }
+@media (prefers-reduced-motion: reduce) { .celebrate.mate .celebrate-box { animation: none !important; } }
