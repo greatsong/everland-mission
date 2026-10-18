@@ -229,7 +229,7 @@ export function QuizCard({ code, teamId, quiz, data, result, refresh, onNext, wh
       }
       if (res.ok || oneShot) refresh()
       else {
-        setMessage('정답이 아닙니다. 다시 생각합니다.')
+        setMessage('땡! 틀렸습니다! 다시 생각합니다.')
         setShake(true)
         navigator.vibrate?.(60)
         setTimeout(() => setShake(false), 450)
@@ -329,7 +329,7 @@ export function QuizCard({ code, teamId, quiz, data, result, refresh, onNext, wh
 
       {message && <p className="error">{message}</p>}
       {/* 축하 화면을 닫은 뒤에도 결과가 눈에 띄게 남는다 */}
-      {result && !ok && <p className="answer">{each ? (note ? '아쉽습니다. 아래 설명을 확인합니다.' : '아쉽습니다. 정답을 확인합니다.') : '오답입니다. 이 문제는 한 번만 답할 수 있습니다.'}</p>}
+      {result && !ok && <p className="answer">{each ? (note ? '땡! 틀렸습니다! 아래 설명을 확인합니다.' : '땡! 틀렸습니다! 정답을 확인합니다.') : '땡! 틀렸습니다! 이 문제는 한 번만 답할 수 있습니다.'}</p>}
       {result && ok && each && <p className="answer medal">✅ 정답입니다</p>}
       {result && ok && !each && result.score > 0 && (
         <p className="answer medal">

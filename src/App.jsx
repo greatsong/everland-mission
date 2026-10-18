@@ -596,7 +596,7 @@ function AnswerForm({ code, teamId, order, refresh }) {
     try {
       const ok = await rpc('evm_answer', { p_code: code, p_team: teamId, p_order: order.id, p_text: text })
       if (ok) refresh()
-      else setMessage('정답이 아닙니다. 다시 생각합니다.')
+      else setMessage('땡! 틀렸습니다! 다시 생각합니다.')
     } catch (err) {
       setMessage(String(err.message).includes('EVM_ORDER_CLOSED') ? '마감된 지령입니다.' : '보내지 못했습니다. 통신 상태를 확인합니다.')
     } finally {
