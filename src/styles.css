@@ -389,7 +389,9 @@ h1, h2, p, figure { margin: 0; }
 .locate-prompt-title { margin: 0; font-weight: 800; font-size: 16px; }
 
 /* 팀 선택 버튼의 담당 선생님 이름 */
-.team-btn small { display: block; margin-top: 6px; padding: 0 8px; font-size: 13.5px; font-weight: 600; opacity: 0.95; word-break: keep-all; line-height: 1.35; }
+.team-btn small { display: block; margin-top: 6px; padding: 0 8px; font-size: 13.5px; font-weight: 600; word-break: keep-all; line-height: 1.35; }
+/* 선생님 이름은 어느 화면에서나 흰색(입력 칸 안내 글씨 색이 덮지 않게), 밝은 팀 색 위에서도 읽히게 옅은 그림자 */
+.team-grid .team-btn small { color: #fff; opacity: 1; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); }
 
 /* 사진을 찍은 자리의 작은 사진 */
 .photo-wrap { position: absolute; left: 0; top: 0; transform: translate(-50%, calc(-100% - 22px)); }
@@ -562,3 +564,6 @@ button.ox:disabled { cursor: default; }
 .player-chip { display: inline-flex; align-items: center; gap: 2px; margin-right: 4px; padding: 0 2px 0 8px; border-radius: 999px; background: var(--bg); border: 1px solid var(--line); }
 .player-chip .link { padding: 0 4px; text-decoration: none; }
 .player .team-chip { max-width: 52vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 팀 선택: 선생님 이름 줄의 높이를 미리 잡아 두어 이름이 들어와도 버튼 크기가 바뀌지 않게 한다 */
+.team-btn small { min-height: 1.35em; }
+.team-loading { min-height: 260px; display: flex; align-items: center; justify-content: center; color: var(--muted); }

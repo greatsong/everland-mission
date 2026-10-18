@@ -18,6 +18,33 @@ export function teamsOf(data) {
   return TEAMS.slice(0, count || TEAMS.length)
 }
 
+// 팀 선택 화면에 쓸 팀 목록과 담당 선생님 이름. 마지막으로 받은 값을 기기에 저장해 두고 처음부터 그 값으로 그린다.
+// 서버 상태를 받기 전에 기본값(6팀, 선생님 이름 없음)으로 그렸다가 5팀과 이름으로 바뀌며 화면이 한 번 바뀌던 문제를 막는다.
+// 저장된 값도 없으면 null을 돌려주고, 화면은 "불러오는 중"을 같은 높이로 보여 준다.
+const TEAMS_VIEW_KEY = 'evm:v2:teamsView'
+
+export function useTeamsView(data) {
+  const [cached] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem(TEAMS_VIEW_KEY))
+    } catch {
+      return null
+    }
+  })
+  useEffect(() => {
+    if (!data) return
+    const view = { count: data.team_count, teachers: Object.fromEntries((data.teams || []).map((t) => [t.team_id, t.teachers || ''])) }
+    try {
+      localStorage.setItem(TEAMS_VIEW_KEY, JSON.stringify(view))
+    } catch {
+      /* 저장이 막혀도 이번 화면은 서버 값으로 그린다 */
+    }
+  }, [data])
+  if (data) return { teams: teamsOf(data), teachers: (id) => teachersOf(data, id) }
+  if (cached?.count) return { teams: TEAMS.slice(0, cached.count), teachers: (id) => cached.teachers?.[id] || '' }
+  return null
+}
+
 // 서버 상태를 주기적으로 받아 온다. 화면이 다시 보일 때도 받아 온다.
 // interval: 받아 오는 간격(ms). 퀴즈 배틀 중에는 팀 화면이 더 자주 받아 온다(App.jsx).
 // device: 버스 퀴즈 화면은 휴대폰 번호를 함께 보내 이 휴대폰의 OT 응답(mine)을 받는다.

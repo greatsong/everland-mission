@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { TEAMS, MISSIONS, SCORE } from './data.js'
 import { rpc, BadCodeError, loadSession, saveSession, loadState, saveState, compressPhoto, report, lazyImport, QUIZ_ENDED_TEXT, QUIZ_CLOSED_TEXT } from './store.js'
 import { boardFor, teamScore, doneByTeam, missionInfo, rushRank, completedLines, teacherNames, locationGroups, liveBattle, battleRule, serverNow, battleOrder } from './logic.js'
-import { useRemote, usePhoto, Photo, Ranking, teamsOf, useLocationShare, LocationList, everlandMapUrl, TeamAvatar, teachersOf, teacherMap, withHere, HQ_TEAM, SplitNote, LocateButton, deviceId } from './shared.jsx'
+import { useRemote, usePhoto, Photo, Ranking, teamsOf, useLocationShare, LocationList, everlandMapUrl, TeamAvatar, teachersOf, teacherMap, withHere, HQ_TEAM, SplitNote, LocateButton, deviceId, useTeamsView } from './shared.jsx'
 import { lazy, Suspense } from 'react'
 import Games, { CountdownNumber } from './Games.jsx'
 import { BusJoin, PlayerHome, useBattleWatch } from './Bus.jsx'
@@ -152,6 +152,7 @@ function Login({ onLogin, notice }) {
 
 function TeamSelect({ session, onSelect, onLogout }) {
   const { data } = useRemote(session.code, onLogout)
+  const view = useTeamsView(data)
   return (
     <main className="select">
       <EventTitle />
@@ -160,14 +161,18 @@ function TeamSelect({ session, onSelect, onLogout }) {
           ? '🚌 버스 퀴즈에 참여할 우리 팀을 고릅니다. 버튼에 적힌 담당 선생님 이름을 확인합니다.'
           : '우리 팀을 선택합니다. 팀이 A조, B조로 나뉘면 선생님마다 각자 휴대폰으로 입장합니다.'}
       </p>
-      <div className="team-grid">
-        {teamsOf(data).map((t) => (
-          <button key={t.id} className="team-btn" style={{ background: t.color }} onClick={() => onSelect(t.id)}>
-            {t.name}
-            {data && teacherNames(teachersOf(data, t.id)).length > 0 && <small>{teacherNames(teachersOf(data, t.id)).join(' · ')}</small>}
-          </button>
-        ))}
-      </div>
+      {view ? (
+        <div className="team-grid">
+          {view.teams.map((t) => (
+            <button key={t.id} className="team-btn" style={{ background: t.color }} onClick={() => onSelect(t.id)}>
+              {t.name}
+              <small>{teacherNames(view.teachers(t.id)).join(' · ')}</small>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <p className="team-loading">팀 목록을 불러오는 중입니다</p>
+      )}
       <p className="select-links">
         {session.role === 'admin' && <a href="#hq">본부 화면</a>}
         {session.role !== 'player' && (

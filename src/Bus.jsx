@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { TEAMS, MISSIONS } from './data.js'
 import { rpc, report, QUIZ_CLOSED_TEXT } from './store.js'
-import { useRemote, teamsOf, teachersOf, deviceId, prefetchQuizPhoto } from './shared.jsx'
+import { useRemote, teamsOf, deviceId, prefetchQuizPhoto, useTeamsView } from './shared.jsx'
 import { teacherNames, liveBattle, battleOrder, serverNow, busRanking, busPoints, currentBusQuestion, busList, josa } from './logic.js'
 import { QuizCard, answerOf } from './Games.jsx'
 import { CelebrationLayer, celebrate, resultLook, markShown } from './celebrate.jsx'
@@ -55,6 +55,7 @@ export function useBattleWatch(code, data, teamId) {
 // 1. 입장: 이름과 팀을 한 화면에서 고른다. 팀 버튼에 담당 선생님 이름이 보여 팀을 잘못 고르지 않는다.
 export function BusJoin({ session, onJoin, onLogout }) {
   const { data } = useRemote(session.code, onLogout)
+  const view = useTeamsView(data)
   const [name, setName] = useState(session.name || '')
   const [teamId, setTeamId] = useState(session.teamId || null)
   const [error, setError] = useState('')
@@ -98,15 +99,22 @@ export function BusJoin({ session, onJoin, onLogout }) {
         </label>
         <div className="field">
           <span>우리 팀</span>
-          <div className="team-grid">
-            {teamsOf(data).map((t) => (
-              <button type="button" key={t.id} className={`team-btn${teamId === t.id ? ' sel' : ''}`} style={{ background: t.color }}
-                onClick={() => { setTeamId(t.id); setError('') }} aria-pressed={teamId === t.id}>
-                {t.name}
-                {data && teacherNames(teachersOf(data, t.id)).length > 0 && <small>{teacherNames(teachersOf(data, t.id)).join(' · ')} 선생님</small>}
-              </button>
-            ))}
-          </div>
+          {view ? (
+            <div className="team-grid">
+              {view.teams.map((t) => {
+                const names = teacherNames(view.teachers(t.id))
+                return (
+                  <button type="button" key={t.id} className={`team-btn${teamId === t.id ? ' sel' : ''}`} style={{ background: t.color }}
+                    onClick={() => { setTeamId(t.id); setError('') }} aria-pressed={teamId === t.id}>
+                    {t.name}
+                    <small>{names.length > 0 ? `${names.join(' · ')} 선생님` : ''}</small>
+                  </button>
+                )
+              })}
+            </div>
+          ) : (
+            <p className="team-loading">팀 목록을 불러오는 중입니다</p>
+          )}
         </div>
         {error && <p className="error">{error}</p>}
         <button className="primary" disabled={busy}>{busy ? '들어가는 중입니다' : team ? `${team.name}으로 입장` : '입장'}</button>
