@@ -55,8 +55,9 @@ export default function App() {
   const route = useHashRoute()
 
   const setSession = useCallback((next) => {
-    saveSession(next)
-    setSessionState(next)
+    const fixed = next?.role === 'practice' ? { ...next, role: 'player' } : next // 연습도 아이 화면으로 들어간다
+    saveSession(fixed)
+    setSessionState(fixed)
   }, [])
   // err가 있으면 서버가 코드를 거부한 것이다. 버스 퀴즈 입장이 닫혔으면 그 안내를 남긴다.
   const logout = useCallback((err) => {

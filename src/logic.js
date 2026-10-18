@@ -33,7 +33,7 @@ export function scoreOf(board, done) {
 // 서버 제출 목록에서 팀별 완료 표시를 만든다. { [teamId]: { [missionId]: true } }
 export function doneByTeam(submissions) {
   const map = Object.fromEntries(TEAMS.map((t) => [t.id, {}]))
-  for (const s of submissions) if (map[s.team_id]) map[s.team_id][s.mission_id] = true
+  for (const s of submissions || []) if (map[s.team_id]) map[s.team_id][s.mission_id] = true
   return map
 }
 

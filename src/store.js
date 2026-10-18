@@ -144,7 +144,12 @@ function write(key, value) {
 }
 
 // 세션: { code, role: 'team' | 'admin', teamId }
-export const loadSession = () => read(SESSION_KEY, null)
+// 연습(practice)으로 저장된 입장 정보는 아이 화면(player)으로 읽는다. 연습을 배포한 직후 예전 화면이 practice를 그대로 저장해
+// 선생님 팀 화면이 연습 자료를 읽다가 멈춘 일이 있었다(2026-10-18).
+export const loadSession = () => {
+  const s = read(SESSION_KEY, null)
+  return s?.role === 'practice' ? { ...s, role: 'player' } : s
+}
 export const saveSession = (session) => write(SESSION_KEY, session)
 
 // 팀 기록: { done: { [missionId]: { photo, at, synced } }, removed: [missionId],
