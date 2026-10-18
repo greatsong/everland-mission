@@ -157,7 +157,7 @@ function BusStatusBar({ data, current, teamId, teams }) {
   )
 }
 
-// 2. 대기실: 다음에 할 일, 함께 들어온 우리 팀(미션 미리 보기는 2026-10-18 사용자 요청으로 뺐다)
+// 2. 대기실: 다음에 할 일, 본부 알림(안내 사항), 함께 들어온 우리 팀(미션 미리 보기는 2026-10-18 사용자 요청으로 뺐다)
 function BusLobby({ data, teamId }) {
   const ot = busList(data, 'ot')
   const bus = busList(data, 'bus')
@@ -183,6 +183,7 @@ function BusLobby({ data, teamId }) {
         <p className="question">{hero.title}</p>
         <p className="hint">{hero.sub}</p>
       </div>
+      {data.notice?.body && <p className="hq-notice">📢 {data.notice.body}</p>}
       {last && (
         <div className="card bus-last">
           <p className="hint">지난 문제</p>
