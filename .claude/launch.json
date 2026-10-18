@@ -1,7 +1,0 @@
-{
-  "version": "0.0.1",
-  "configurations": [
-    { "name": "everland-mock-api", "runtimeExecutable": "node", "runtimeArgs": ["/private/tmp/claude-501/-Users-greatsong-greatsong-project-everland-mission/5b9854ad-f5ca-431b-8ea7-fafb0b77e358/scratchpad/mock-server.mjs"], "port": 4071 },
-    { "name": "everland-mock", "runtimeExecutable": "npx", "runtimeArgs": ["vite", "--mode", "mock", "--port", "4072"], "port": 4072 }
-  ]
-}
