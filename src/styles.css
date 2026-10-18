@@ -491,3 +491,14 @@ h1, h2, p, figure { margin: 0; }
 .entry-title { font-weight: 800; font-size: 16px; }
 .entry-panel .order-meta b { font-size: 16px; letter-spacing: 1px; }
 .entry-chip { border: 0; border-radius: 999px; padding: 4px 10px; background: #2b8a3e; color: #fff; font-size: 12px; font-weight: 700; }
+
+/* OX 퀴즈와 답한 뒤 설명(2026-10-18, 버스 OT) */
+.ox-q { font-size: 21px; }
+.ox-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.ox { display: flex; align-items: center; justify-content: center; padding: 16px 0; border-radius: 20px; border: 3px solid; font-size: 56px; line-height: 1; }
+.ox.o { border-color: #74c0fc; background: #e7f5ff; }
+.ox.x { border-color: #ffa8a8; background: #fff5f5; }
+.ox.right { border-color: #2f9e44; background: #d3f9d8; box-shadow: 0 0 0 3px #b2f2bb; }
+.ox.wrong { opacity: 0.45; }
+button.ox:disabled { cursor: default; }
+.quiz-note { text-align: left; padding: 12px 14px; border-radius: 12px; background: #fff9db; border-left: 4px solid #f59f00; font-size: 15px; line-height: 1.55; word-break: keep-all; }

@@ -40,6 +40,7 @@ export const MISSIONS = [
 export const SCORE = { perMission: 10, perLine: 30 }
 
 export const QUIZ_KINDS = [
+  { id: 'ox', icon: '⭕', title: 'OX 퀴즈', desc: '문장이 맞으면 O, 틀리면 X를 고릅니다. 팀에서 한 번만 답할 수 있고, 답한 뒤에 설명이 나옵니다.' },
   { id: 'chosung', icon: '🔤', title: '초성 퀴즈', desc: '초성을 보고 답을 입력합니다. 띄어쓰기는 상관없습니다. 힌트를 보면 점수가 절반입니다.' },
   { id: 'bible', icon: '✝️', title: '성경 퀴즈', desc: '객관식은 넷 중 하나를 고르며 한 번만 답할 수 있습니다. 단답형은 핵심 낱말을 입력합니다.' },
   { id: 'nonsense', icon: '🤣', title: '넌센스 퀴즈', desc: '넌센스 문제의 답을 입력합니다. 띄어쓰기는 상관없고, 맞힐 때까지 다시 낼 수 있습니다.' },

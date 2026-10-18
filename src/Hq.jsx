@@ -585,7 +585,7 @@ function QuizAdmin({ code, data, teams, run }) {
         {drafts > 0 && (
           <button className="link" onClick={() => run('evm_quiz_open_all', { p_kind: kind }, '보관 중인 문제를 모두 출제했습니다.')}>보관 {drafts}개 모두 출제</button>
         )}
-        {kind !== 'image' && <button className="link" onClick={seed}>기본 문제 불러오기</button>}
+        {kind !== 'image' && kind !== 'ox' && <button className="link" onClick={seed}>기본 문제 불러오기</button>}
       </p>
 
       {!list.length && <p className="guide">문제가 없습니다.</p>}
@@ -610,6 +610,7 @@ function QuizAdmin({ code, data, teams, run }) {
                   <small> 정답: {q.choices ? q.choices[Number(q.answer)] : q.answer}{q.hint && ` · 힌트: ${q.hint}`}</small>
                 </p>
                 {q.choices && <p className="order-meta">{q.choices.join(' / ')}</p>}
+                {q.note && <p className="order-meta">📖 {q.note}</p>}
                 {q.battle && order.length > 0 && (
                   <p className="order-meta">
                     맞힌 순서:{' '}
@@ -690,7 +691,7 @@ function BusQuizEntry({ data, run }) {
   )
 }
 
-const emptyDraft = { body: '', answer: '', hint: '', choices: ['', '', '', ''], correct: 0, photo: null }
+const emptyDraft = { body: '', answer: '', hint: '', choices: ['', '', '', ''], correct: 0, photo: null, ox: '', note: '' }
 
 // 입력한 내용을 서버 함수 인자로 바꾼다. 빠진 칸이 있으면 null.
 function draftArgs(kind, mode, d) {
@@ -701,6 +702,10 @@ function draftArgs(kind, mode, d) {
   if (kind === 'bible' && mode === 'choice') {
     if (!d.body.trim() || d.choices.some((c) => !c.trim())) return null
     return { p_body: d.body.trim(), p_choices: d.choices.map((c) => c.trim()), p_answer: String(d.correct), p_hint: null }
+  }
+  if (kind === 'ox') {
+    if (!d.body.trim() || !d.ox) return null
+    return { p_body: d.body.trim(), p_choices: null, p_answer: d.ox, p_hint: null }
   }
   if (kind === 'image') {
     if (!d.photo || !d.body.trim() || !d.answer.trim()) return null
@@ -745,7 +750,7 @@ function QuizForm({ kind, code, run }) {
     setBusy(true)
     const id = await run(
       'evm_quiz_add',
-      { p_kind: kind, p_photo: null, ...args, p_points: pointsFor, p_open: start && !battle, p_battle: battle },
+      { p_kind: kind, p_photo: null, p_note: draft.note.trim() || null, ...args, p_points: pointsFor, p_open: start && !battle, p_battle: battle },
       start ? '출제했습니다.' : '보관했습니다.',
     )
     if (id && start && battle) {
@@ -780,11 +785,19 @@ function QuizForm({ kind, code, run }) {
           <label className="field">
             <span>문제</span>
             <textarea rows={2} value={draft.body} onChange={(e) => set({ body: e.target.value })} maxLength={300}
-              placeholder={kind === 'nonsense' ? '예: 왕이 넘어지면?' : kind === 'image' ? '예: 고양이가 지옥에 가면?' : '예: 홍해를 가른 지도자는 누구입니까?'} />
+              placeholder={kind === 'nonsense' ? '예: 왕이 넘어지면?' : kind === 'image' ? '예: 고양이가 지옥에 가면?' : kind === 'ox' ? '예: ⏰ 최종 집합 시간은 16:00이다.' : '예: 홍해를 가른 지도자는 누구입니까?'} />
           </label>
         )}
 
-        {isChoice ? (
+        {kind === 'ox' ? (
+          <div className="field">
+            <span>정답</span>
+            <div className="seg">
+              <button type="button" className={draft.ox === 'O' ? 'on' : ''} onClick={() => set({ ox: 'O' })}>⭕ O (맞다)</button>
+              <button type="button" className={draft.ox === 'X' ? 'on' : ''} onClick={() => set({ ox: 'X' })}>❌ X (틀리다)</button>
+            </div>
+          </div>
+        ) : isChoice ? (
           <div className="field">
             <span>선택지 (정답인 칸의 동그라미를 고릅니다)</span>
             {draft.choices.map((c, i) => (
@@ -806,6 +819,13 @@ function QuizForm({ kind, code, run }) {
             </small>
           </label>
         )}
+
+        <label className="field">
+          <span>설명 (선택)</span>
+          <textarea rows={2} value={draft.note} onChange={(e) => set({ note: e.target.value })} maxLength={400}
+            placeholder={kind === 'ox' ? '예: 15:30부터 이동해서 16시까지 집합 장소에 늦지 않도록 합니다.' : '답한 뒤에 보여 줄 설명입니다. 비워 두어도 됩니다'} />
+          <small>답한 팀에는 채점 결과와 함께, 모든 팀에는 마감한 뒤에 보입니다.</small>
+        </label>
 
         {hasHint && (
           <label className="field">
@@ -875,7 +895,12 @@ function QuizForm({ kind, code, run }) {
             <p className="question">{draft.body.trim() || '문제가 여기에 표시됩니다'}</p>
           )}
           {kind === 'image' && draft.hint.trim() && <span className="ghost fake-btn">힌트 보기 (감점 없음)</span>}
-          {isChoice ? (
+          {kind === 'ox' ? (
+            <div className="ox-buttons">
+              <span className={`ox o ${draft.ox === 'O' ? 'right' : ''}`}>⭕</span>
+              <span className={`ox x ${draft.ox === 'X' ? 'right' : ''}`}>❌</span>
+            </div>
+          ) : isChoice ? (
             <div className="choices">
               {draft.choices.map((c, i) => (
                 <span key={i} className={`choice ${draft.correct === i ? 'right' : ''}`}>{c.trim() || `선택지 ${i + 1}`}</span>
@@ -887,10 +912,11 @@ function QuizForm({ kind, code, run }) {
               <span className="primary fake-btn">제출</span>
             </div>
           )}
+          {draft.note.trim() && <p className="quiz-note">📖 {draft.note.trim()}</p>}
         </div>
       </div>
 
-      {kind !== 'image' && <AiSuggest kind={kind} mode={mode} code={code} run={run} points={points} />}
+      {kind !== 'image' && kind !== 'ox' && <AiSuggest kind={kind} mode={mode} code={code} run={run} points={points} />}
     </div>
   )
 }

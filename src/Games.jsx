@@ -102,8 +102,8 @@ export default function Games({ code, teamId, data, refresh, focus, onFocused, i
       {live && <LiveBattle data={data} quiz={live} teamId={teamId} onOpen={() => setSelected(live.id)} />}
       {QUIZ_KINDS.map((kind) => {
         const list = listOf(data, teamId, kind.id)
-        // 그림 퀴즈는 문제가 있을 때만 묶음을 보여 준다.
-        if (kind.id === 'image' && !list.length) return null
+        // 그림 퀴즈와 OX 퀴즈는 문제가 있을 때만 묶음을 보여 준다.
+        if ((kind.id === 'image' || kind.id === 'ox') && !list.length) return null
         return (
           <section key={kind.id}>
             <h2 className="section">{kind.icon} {kind.title}</h2>
@@ -169,9 +169,12 @@ function QuizCard({ code, teamId, quiz, data, result, refresh, onNext }) {
   const [busy, setBusy] = useState(false)
   const [reply, setReply] = useState(null) // 서버 채점 결과
   const [shake, setShake] = useState(false) // 틀렸을 때 입력 칸을 흔든다
+  const [picked, setPicked] = useState(null) // OX에서 고른 답(틀렸을 때 표시)
   const sec = useCountdown(data, quiz)
   const done = Boolean(result) || quiz.status === 'closed'
   const isChoice = quiz.kind === 'bible' && Array.isArray(quiz.choices)
+  const isOx = quiz.kind === 'ox'
+  const oneShot = isChoice || isOx // 팀에서 한 번만 답한다
   const hidden = quiz.body == null // 배틀 문제가 아직 공개되지 않음
   // 초성 퀴즈의 힌트는 점수가 절반이 되고, 그림 퀴즈의 힌트는 감점이 없다.
   const hintHalf = quiz.kind === 'chosung'
@@ -191,6 +194,7 @@ function QuizCard({ code, teamId, quiz, data, result, refresh, onNext }) {
 
   async function send(value) {
     unlockAudio() // 누르는 순간에 소리 장치를 깨워야 채점 뒤 효과음이 난다(아이폰)
+    if (isOx) setPicked(value)
     setBusy(true)
     setMessage('')
     try {
@@ -204,7 +208,7 @@ function QuizCard({ code, teamId, quiz, data, result, refresh, onNext }) {
         const winner = res.first_team ?? battleOrder(data, quiz.id).find((s) => s.team_id !== teamId)?.team_id
         celebrate({ key: `quiz:${quiz.id}`, ...resultLook(quiz, res.points, res.rank, winner && teamName(winner)) })
       }
-      if (res.ok || isChoice) refresh()
+      if (res.ok || oneShot) refresh()
       else {
         setMessage('정답이 아닙니다. 다시 생각합니다.')
         setShake(true)
@@ -220,6 +224,7 @@ function QuizCard({ code, teamId, quiz, data, result, refresh, onNext }) {
   }
 
   const correctIndex = reply?.answer ?? quiz.answer
+  const note = reply?.note ?? quiz.note // 답한 뒤에 보여 주는 설명(OT 규칙 안내 등)
   const ok = result ? scoreOk(result) : false
   const rank = quiz.battle && ok ? battleOrder(data, quiz.id).findIndex((s) => s.team_id === teamId) + 1 || reply?.rank : null
   // 1등만 배틀을 다른 팀이 먼저 맞혔으면 입력 칸 위에 알린다(위쪽 띠는 잠깐만 보이므로).
@@ -250,10 +255,22 @@ function QuizCard({ code, teamId, quiz, data, result, refresh, onNext }) {
         </p>
       )}
       {quiz.kind === 'image' && <QuizImage code={code} quiz={quiz} />}
-      <p className={quiz.kind === 'chosung' ? 'big' : 'question'}>{quiz.body}</p>
+      <p className={quiz.kind === 'chosung' ? 'big' : isOx ? 'question ox-q' : 'question'}>{quiz.body}</p>
       {hasHint && (hint || done) && <p className="hint">힌트: {quiz.hint}</p>}
 
-      {isChoice && !done && <p className="hint">객관식은 팀에서 한 번만 답할 수 있습니다. 함께 의논한 뒤 고릅니다.</p>}
+      {oneShot && !done && <p className="hint">{isOx ? 'OX는' : '객관식은'} 팀에서 한 번만 답할 수 있습니다. 함께 의논한 뒤 고릅니다.</p>}
+      {isOx && (
+        <div className="ox-buttons">
+          {['O', 'X'].map((v) => {
+            const cls = !done ? '' : v === correctIndex ? 'right' : v === picked ? 'wrong' : ''
+            return (
+              <button key={v} className={`ox ${v === 'O' ? 'o' : 'x'} ${cls}`} disabled={done || busy} onClick={() => send(v)} aria-label={v === 'O' ? 'O 맞습니다' : 'X 틀립니다'}>
+                {v === 'O' ? '⭕' : '❌'}
+              </button>
+            )
+          })}
+        </div>
+      )}
       {isChoice && (
         <div className="choices">
           {quiz.choices.map((c, i) => {
@@ -269,7 +286,7 @@ function QuizCard({ code, teamId, quiz, data, result, refresh, onNext }) {
 
       {winner && <p className="battle-winner">🏁 {teamName(winner.team_id)}이 먼저 맞혔습니다. 지금 맞히면 정답으로 기록됩니다.</p>}
 
-      {!isChoice && !done && (
+      {!oneShot && !done && (
         <>
           {hasHint && !hint && (
             <button className="ghost" onClick={() => setHint(true)}>{hintHalf ? '힌트 보기' : '힌트 보기 (감점 없음)'}</button>
@@ -297,7 +314,8 @@ function QuizCard({ code, teamId, quiz, data, result, refresh, onNext }) {
       {result && onNext && <button className="primary" onClick={onNext}>다음 문제 풀기</button>}
       {result && !onNext && !quiz.battle && <p className="hint">이 종류의 문제를 모두 풀었습니다.</p>}
       {!result && quiz.status === 'closed' && <p className="hint">마감된 문제입니다.</p>}
-      {quiz.status === 'closed' && quiz.answer != null && !isChoice && <p className="hint">정답: {quiz.answer}</p>}
+      {quiz.status === 'closed' && quiz.answer != null && !oneShot && <p className="hint">정답: {quiz.answer}</p>}
+      {done && note && <p className="quiz-note">📖 {note}</p>}
     </div>
   )
 }

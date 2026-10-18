@@ -203,7 +203,8 @@ begin
         'body', case when v_admin or starts_at is null or starts_at <= now() then body end,
         'choices', case when v_admin or starts_at is null or starts_at <= now() then choices end,
         'hint', case when v_admin or starts_at is null or starts_at <= now() then hint end,
-        'answer', case when v_admin or status = 'closed' then answer end
+        'answer', case when v_admin or status = 'closed' then answer end,
+        'note', case when v_admin or status = 'closed' then note end
       ) order by id) from evm_quizzes
       where v_admin or status in ('open', 'closed', 'pending')), '[]'::json),
     'teams', coalesce((
@@ -356,12 +357,12 @@ begin
   return v_ok;
 end $$;
 
--- 퀴즈. 초성(chosung)·성경(bible)·넌센스(nonsense)·그림(image)은 본부가 출제하고,
+-- 퀴즈. 초성(chosung)·성경(bible)·넌센스(nonsense)·그림(image)·OX(ox)는 본부가 출제하고,
 -- 몸으로 말해요(act)는 팀이 사진과 정답을 내면 본부가 승인해 출제한다.
 -- status: pending(승인 대기) → draft(보관) → open(출제) → closed(마감)
 create table if not exists evm_quizzes (
   id bigint generated always as identity primary key,
-  kind text not null check (kind in ('chosung', 'bible', 'nonsense', 'act', 'image')),
+  kind text not null check (kind in ('chosung', 'bible', 'nonsense', 'act', 'image', 'ox')),
   body text not null,
   choices json,
   answer text not null,
@@ -375,7 +376,10 @@ create table if not exists evm_quizzes (
 alter table evm_quizzes enable row level security;
 -- 그림 퀴즈와 퀴즈 배틀(2026-10-17). 그림 퀴즈는 photo 칸(몸으로 말해요와 같은 칸)에 그림을 둔다.
 alter table evm_quizzes drop constraint if exists evm_quizzes_kind_check;
-alter table evm_quizzes add constraint evm_quizzes_kind_check check (kind in ('chosung', 'bible', 'nonsense', 'act', 'image'));
+alter table evm_quizzes add constraint evm_quizzes_kind_check check (kind in ('chosung', 'bible', 'nonsense', 'act', 'image', 'ox'));
+-- OX 퀴즈(2026-10-18, 버스 OT): 정답은 'O' 또는 'X'이고 객관식처럼 팀에서 한 번만 답한다.
+-- note: 답한 뒤에 보여 주는 설명(OT 규칙 안내 등). 답한 팀에는 채점 결과와 함께, 모든 팀에는 마감 뒤에 보낸다.
+alter table evm_quizzes add column if not exists note text;
 -- battle: 선착순 방식. rush는 맞힌 순서대로 30·20·10점, 그 뒤 5점. first는 1등 팀만 문제 점수를 받는다. null이면 보통 문제
 alter table evm_quizzes add column if not exists battle text check (battle in ('rush', 'first'));
 -- starts_at: 배틀 문제를 공개하는 시각. 본부가 배틀을 시작하면 10초나 15초 뒤로 정한다
@@ -389,11 +393,12 @@ language sql immutable as $$
 $$;
 
 -- 문제 출제(본부). 만든 문제 번호를 돌려준다. 그림 퀴즈는 그림(긴 변 1024px JPEG)이 있어야 한다.
--- 배틀 문제는 보관 상태로 넣고, evm_quiz_battle_start로 카운트다운을 시작한다.
+-- 배틀 문제는 보관 상태로 넣고, evm_quiz_battle_start로 카운트다운을 시작한다. p_note는 답한 뒤에 보여 주는 설명이다.
 drop function if exists evm_quiz_add(text, text, text, json, text, text, int, boolean);
+drop function if exists evm_quiz_add(text, text, text, json, text, text, int, boolean, text, text);
 create or replace function evm_quiz_add(
   p_code text, p_kind text, p_body text, p_choices json, p_answer text, p_hint text, p_points int, p_open boolean,
-  p_photo text default null, p_battle text default null
+  p_photo text default null, p_battle text default null, p_note text default null
 ) returns bigint
 language plpgsql security definer set search_path = public as $$
 declare v_id bigint;
@@ -405,10 +410,16 @@ begin
   if p_kind = 'image' and (p_photo is null or p_photo not like 'data:image/jpeg;base64,%' or length(p_photo) > 700000) then
     raise exception 'EVM_BAD_PHOTO' using errcode = 'P0001';
   end if;
-  insert into evm_quizzes (kind, body, choices, answer, hint, points, status, photo, battle)
-  values (p_kind, left(btrim(p_body), 300), p_choices, btrim(p_answer), nullif(btrim(coalesce(p_hint, '')), ''), p_points,
+  if p_kind = 'ox' and upper(btrim(p_answer)) not in ('O', 'X') then
+    raise exception 'EVM_BAD_QUIZ' using errcode = 'P0001';
+  end if;
+  insert into evm_quizzes (kind, body, choices, answer, hint, points, status, photo, battle, note)
+  values (p_kind, left(btrim(p_body), 300), p_choices,
+          case when p_kind = 'ox' then upper(btrim(p_answer)) else btrim(p_answer) end,
+          nullif(btrim(coalesce(p_hint, '')), ''), p_points,
           case when p_open and p_battle is null then 'open' else 'draft' end,
-          case when p_kind = 'image' then p_photo end, p_battle)
+          case when p_kind = 'image' then p_photo end, p_battle,
+          nullif(left(btrim(coalesce(p_note, '')), 400), ''))
   returning id into v_id;
   return v_id;
 end $$;
@@ -516,9 +527,10 @@ begin
   -- 객관식(성경 퀴즈에 선택지가 있을 때)은 번호를 비교한다.
   -- 그 밖에는 정답 칸에 쉼표로 적은 낱말 중 하나와 맞으면 정답이다.
   -- 성경 단답형은 답안에 핵심 낱말이 들어 있으면 정답으로 본다(예: 정답 "모세", 답안 "모세입니다").
-  v_choice := q.kind = 'bible' and q.choices is not null;
+  -- OX 퀴즈도 객관식처럼 한 번만 답한다('O' 또는 'X').
+  v_choice := (q.kind = 'bible' and q.choices is not null) or q.kind = 'ox';
   if v_choice then
-    v_ok := btrim(coalesce(p_text, '')) = q.answer;
+    v_ok := upper(btrim(coalesce(p_text, ''))) = upper(q.answer);
   else
     v_ok := exists (
       select 1 from unnest(string_to_array(q.answer, ',')) k
@@ -554,7 +566,8 @@ begin
   return json_build_object('ok', v_ok, 'points', v_points, 'rank', v_rank,
     'first_team', case when q.battle = 'first' and v_rank > 1 then (
       select team_id from evm_scores where game_id = 'quiz:' || q.id and coalesce(ok, score > 0) order by created_at limit 1) end,
-    'answer', case when v_choice then q.answer end);
+    'answer', case when v_choice then q.answer end,
+    'note', q.note);
 end $$;
 
 drop function if exists evm_score(text, int, text, int);
@@ -789,7 +802,7 @@ grant execute on function
   evm_share_locations(text, boolean), evm_tracks(text),
   evm_team_set(text, int, text, text), evm_team_photo(text, int),
   evm_report(int, text, text, text), evm_events_list(text), evm_events_clear(text),
-  evm_quiz_add(text, text, text, json, text, text, int, boolean, text, text), evm_quiz_battle_start(text, bigint, int),
+  evm_quiz_add(text, text, text, json, text, text, int, boolean, text, text, text), evm_quiz_battle_start(text, bigint, int),
   evm_quiz_entry(text, boolean),
   evm_quiz_seed(text, json), evm_quiz_set(text, bigint, text),
   evm_quiz_open_all(text, text), evm_quiz_delete(text, bigint), evm_act_submit(text, int, text, text),
