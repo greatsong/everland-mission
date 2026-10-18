@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { TEAMS, MISSIONS, SCORE } from './data.js'
 import { rpc, BadCodeError, loadSession, saveSession, loadState, saveState, compressPhoto, report, lazyImport, QUIZ_ENDED_TEXT, QUIZ_CLOSED_TEXT } from './store.js'
-import { boardFor, teamScore, doneByTeam, missionInfo, rushRank, completedLines, teacherNames, locationGroups, liveBattle, battleRule, serverNow, battleOrder } from './logic.js'
+import { boardFor, teamScore, doneByTeam, missionInfo, rushRank, completedLines, teacherNames, teacherLabel, locationGroups, liveBattle, battleRule, serverNow, battleOrder } from './logic.js'
 import { useRemote, usePhoto, Photo, Ranking, teamsOf, useLocationShare, LocationList, everlandMapUrl, TeamAvatar, teachersOf, teacherMap, withHere, HQ_TEAM, SplitNote, LocateButton, deviceId, useTeamsView } from './shared.jsx'
 import { lazy, Suspense } from 'react'
 import Games, { CountdownNumber } from './Games.jsx'
@@ -166,7 +166,7 @@ function TeamSelect({ session, onSelect, onLogout }) {
           {view.teams.map((t) => (
             <button key={t.id} className="team-btn" style={{ background: t.color }} onClick={() => onSelect(t.id)}>
               {t.name}
-              <small>{teacherNames(view.teachers(t.id)).join(' · ')}</small>
+              <small>{teacherLabel(teacherNames(view.teachers(t.id)))}</small>
             </button>
           ))}
         </div>

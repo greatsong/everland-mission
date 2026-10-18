@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { TEAMS, MISSIONS } from './data.js'
 import { rpc, report, QUIZ_CLOSED_TEXT } from './store.js'
 import { useRemote, teamsOf, deviceId, prefetchQuizPhoto, useTeamsView } from './shared.jsx'
-import { teacherNames, liveBattle, battleOrder, serverNow, busRanking, busPoints, currentBusQuestion, busList, josa } from './logic.js'
+import { teacherNames, teacherLabel, liveBattle, battleOrder, serverNow, busRanking, busPoints, currentBusQuestion, busList, josa } from './logic.js'
 import { QuizCard, answerOf } from './Games.jsx'
 import { CelebrationLayer, celebrate, resultLook, markShown } from './celebrate.jsx'
 
@@ -107,7 +107,7 @@ export function BusJoin({ session, onJoin, onLogout }) {
                   <button type="button" key={t.id} className={`team-btn${teamId === t.id ? ' sel' : ''}`} style={{ background: t.color }}
                     onClick={() => { setTeamId(t.id); setError('') }} aria-pressed={teamId === t.id}>
                     {t.name}
-                    <small>{names.length > 0 ? `${names.join(' · ')} 선생님` : ''}</small>
+                    <small>{teacherLabel(names)}</small>
                   </button>
                 )
               })}

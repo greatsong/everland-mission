@@ -176,6 +176,11 @@ export function teacherNames(text) {
     .filter(Boolean)
 }
 
+// 팀 선택 화면에 보일 담당 선생님 표시. 이름마다 직함을 붙이고, 이미 직함(강도사님 등)이 있으면 그대로 둔다.
+// 예: ['한○○', '서○○ 강도사님'] → "한○○ 선생님 · 서○○ 강도사님"
+const TITLE = /(님|선생|강도사|목사|간사|집사|권사|장로)$/
+export const teacherLabel = (names) => names.map((n) => (TITLE.test(n) ? n : `${n} 선생님`)).join(' · ')
+
 // 같은 팀의 휴대폰이 이보다 멀리 떨어지면 지도에 A조, B조로 나누어 표시한다(미터).
 export const SPLIT_M = 20
 // 같은 팀의 가장 최근 위치보다 이만큼 오래된 휴대폰 위치는 지도에서 뺀다(분).
