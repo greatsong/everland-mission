@@ -8,7 +8,7 @@
 - 팀 화면: https://greatsong.github.io/everland-mission/
 - 본부 화면: 같은 주소 뒤에 `#hq`, 슬라이드쇼는 `#show`
 - 입장 코드와 본부 코드, 버스 퀴즈 코드: `_private/codes.txt` (저장소에 올리지 않는다. 대화나 커밋에 적지 않는다)
-- 버스 퀴즈 QR 카드: `_private/bus-quiz-qr.png` (주소 `…/#q=버스퀴즈코드`로 열면 바로 입장)
+- 버스 퀴즈 QR 카드: `_private/bus-quiz-qr.png` (주소 `…/#q=버스퀴즈코드`로 열면 바로 입장). 원본은 `_private/design/bus-quiz-qr-card.html`이고 크롬 headless로 1240×1754 캡처한다. 구글 드라이브 '에버랜드 미션 앱 안내' 폴더에도 같은 카드와 OT OX 캡처(2026-10-18)를 올렸다
 - 로컬 개발: 포트 4058. 미리보기 설정은 `greatsong-project/etc/.claude/launch.json`의 `everland-mission`
 
 ## 구조
