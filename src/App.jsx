@@ -57,14 +57,17 @@ export default function App() {
     setSession(null)
   }, [setSession])
 
-  // QR로 연 경우: 선생님·본부 휴대폰은 지금 입장을 그대로 두고, 그 밖에는 버스 퀴즈로 입장한다.
+  // QR로 연 경우 버스 퀴즈로 입장한다. 선생님·본부 휴대폰은 바꿀지 먼저 묻는다(선생님 화면은 입장 코드를 다시 넣으면 돌아온다).
   useEffect(() => {
-    if (!qrCode || (session && session.role !== 'player')) return
+    if (!qrCode) return
+    const teacher = session && session.role !== 'player'
+    if (teacher && !confirm('버스 퀴즈 화면으로 바꿉니까?\n지금 화면은 닫히고, 입장 코드를 다시 입력하면 돌아옵니다. 기록은 그대로 남습니다.')) return
     rpc('evm_login', { p_code: qrCode })
       .then((role) => {
+        const fail = (text) => (teacher ? alert(text) : setNotice(text))
         if (role === 'player') setSession({ code: qrCode, role, teamId: session?.code === qrCode ? session.teamId : null })
-        else if (role === 'ended') setNotice(QUIZ_CLOSED_TEXT)
-        else if (!role) setNotice('QR의 코드가 맞지 않습니다. 선생님께 확인합니다.')
+        else if (role === 'ended') fail(QUIZ_CLOSED_TEXT)
+        else fail('QR의 코드가 맞지 않습니다. 선생님께 확인합니다.')
       })
       .catch(() => setNotice('연결하지 못했습니다. 통신 상태를 확인한 뒤 QR을 다시 찍습니다.'))
     // 처음 한 번만 확인한다(qrCode는 바뀌지 않는다)
