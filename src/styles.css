@@ -502,3 +502,63 @@ h1, h2, p, figure { margin: 0; }
 .ox.wrong { opacity: 0.45; }
 button.ox:disabled { cursor: default; }
 .quiz-note { text-align: left; padding: 12px 14px; border-radius: 12px; background: #fff9db; border-left: 4px solid #f59f00; font-size: 15px; line-height: 1.55; word-break: keep-all; }
+
+/* 버스 퀴즈(아이들 휴대폰, 2026-10-18 개편): 입장·위쪽 줄·대기실·결과 */
+.bus-join h1 { font-size: 30px; }
+.join-form { width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: 14px; }
+.join-form .field input { font-size: 18px; padding: 13px 14px; border-radius: 14px; border: 1px solid var(--line); background: var(--card); }
+.team-btn.sel { outline: 4px solid var(--ink); outline-offset: 2px; }
+.lead-bar { display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: #1f2a24; color: #ffd43b; font-size: 14px; font-weight: 700; }
+.lead-bar span { margin-left: auto; color: #ddd; font-weight: 500; font-size: 13px; text-align: right; }
+.bus-body { padding-bottom: 32px; }
+.bus-hero { text-align: center; }
+.bus-hero-icon { font-size: 44px; line-height: 1.1; }
+.bus-last { text-align: left; }
+.bus-last-q { font-weight: 700; line-height: 1.45; word-break: keep-all; }
+.avatars { display: flex; flex-wrap: wrap; gap: 6px; }
+.av { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px 3px 3px; border-radius: 999px; background: var(--bg); border: 1px solid var(--line); font-size: 13px; }
+.av i { width: 24px; height: 24px; border-radius: 50%; background: var(--team); color: #fff; font-style: normal; font-size: 12px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+.tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.tiles span { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; font-size: 24px; border-radius: 12px; background: var(--bg); border: 1px solid var(--line); }
+.bar { height: 10px; border-radius: 999px; background: #e9ecef; overflow: hidden; }
+.bar i { display: block; height: 100%; border-radius: 999px; background: var(--team); }
+.battle-order .who { margin-left: 4px; }
+.bus-result h1 { font-size: 26px; }
+.bus-result .card { width: 100%; max-width: 420px; }
+.podium { display: flex; align-items: flex-end; justify-content: center; gap: 8px; width: 100%; max-width: 420px; margin: 8px 0; }
+.podium div { flex: 1; max-width: 110px; border-radius: 14px 14px 0 0; color: #fff; text-align: center; font-weight: 800; padding-top: 10px; font-size: 14px; }
+.podium b { display: block; font-size: 22px; }
+.bus-scores { font-weight: 700; line-height: 1.6; word-break: keep-all; }
+
+/* 버스 퀴즈 진행판(본부) */
+.bus-board { margin-top: 12px; }
+.bus-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1fr); gap: 12px; }
+@media (max-width: 900px) { .bus-grid { grid-template-columns: minmax(0, 1fr); } .bus-now { order: -1; } }
+.bus-col { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.bus-col h3 { font-size: 13px; color: var(--muted); margin-top: 4px; }
+.qrow { display: flex; align-items: center; gap: 6px; padding: 7px 9px; border-radius: 10px; background: var(--bg); font-size: 13px; }
+.qrow.now { background: #fff3bf; outline: 2px solid #f59f00; }
+.qrow.done { opacity: 0.55; }
+.qrow .dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: #adb5bd; }
+.qrow.now .dot { background: #f59f00; }
+.qrow.done .dot { background: #2f9e44; }
+.qrow-body { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bus-now-q { font-size: 17px; font-weight: 800; line-height: 1.45; word-break: keep-all; }
+.bus-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.bus-actions button { flex: 1; min-width: 140px; }
+.trow { display: grid; grid-template-columns: 52px minmax(0, 1fr) 44px; gap: 8px; align-items: center; padding: 7px 9px; border-radius: 10px; background: var(--bg); font-size: 14px; }
+.tn { color: #fff; border-radius: 8px; text-align: center; font-weight: 800; padding: 3px 0; font-size: 13px; }
+.bus-rank { display: grid; grid-template-columns: 20px 52px minmax(0, 1fr); gap: 8px; align-items: center; padding: 6px 9px; border-radius: 10px; background: var(--bg); }
+.bus-rank b:last-child { text-align: right; }
+.bus-add { margin-top: 12px; padding: 14px; border-radius: 16px; border: 2px dashed var(--line); background: var(--card); display: flex; flex-direction: column; gap: 10px; }
+.bus-add .entry-title { display: flex; justify-content: space-between; }
+.qr-btn { display: flex; align-items: center; gap: 10px; border: 0; background: none; padding: 0; text-align: left; color: var(--muted); }
+.qr-btn .qr-svg { width: 96px; height: 96px; }
+.qr-svg { display: block; background: #fff; }
+.qr-svg svg { display: block; width: 100%; height: 100%; }
+.qr-big { background: #fff; border-radius: 20px; padding: 18px; text-align: center; color: var(--ink); font-weight: 700; }
+.qr-big .qr-svg { width: min(78vw, 70vh); height: min(78vw, 70vh); margin-bottom: 8px; }
+.player-list { line-height: 1.9; }
+.player-chip { display: inline-flex; align-items: center; gap: 2px; margin-right: 4px; padding: 0 2px 0 8px; border-radius: 999px; background: var(--bg); border: 1px solid var(--line); }
+.player-chip .link { padding: 0 4px; text-decoration: none; }
+.player .team-chip { max-width: 52vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

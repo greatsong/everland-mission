@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { josa } from './logic.js'
 
 // 정답 축하 효과(2026-10-17, UI/UX 검토 반영 2026-10-18). 상황에 따라 크기를 다르게 한다.
 // 배틀 1등(gold)이 가장 크고 2등(silver)·3등(bronze)·그 밖의 정답(ok)·늦은 정답(late) 순서로 작아진다.
@@ -16,17 +17,19 @@ const LOOKS = {
   rival: { icon: '🏁', confetti: 0, ms: 4500, hold: 0, vibrate: [40], sound: false },
 }
 
-// 채점 결과로 축하 모양을 정한다. points와 rank는 서버가 돌려준 값, winner는 1등 팀 이름(1등만 배틀에서 늦게 맞혔을 때).
-// 돌려주는 값: { tier, title, points, sub, note }
-export function resultLook(quiz, points, rank, winner) {
-  if (quiz.battle && rank === 1 && points > 0) return { tier: 'gold', title: '1등!', points, sub: '가장 먼저 맞혔습니다' }
+// 채점 결과로 축하 모양을 정한다. points와 rank는 서버가 돌려준 값, winner는 1등 팀 이름(1등만 배틀에서 늦게 맞혔을 때),
+// who는 맞힌 사람 이름(버스 퀴즈). 돌려주는 값: { tier, title, points, sub, note }
+export function resultLook(quiz, points, rank, winner, who) {
+  if (quiz.round === 'ot') return { tier: 'ok', title: '정답!', sub: who ? `${josa(who)} 맞혔습니다` : undefined }
+  if (quiz.battle && rank === 1 && points > 0) return { tier: 'gold', title: '1등!', points, sub: who ? `${josa(who)} 가장 먼저 맞혔습니다` : '가장 먼저 맞혔습니다' }
   if (quiz.battle === 'first') {
     return { tier: 'late', title: '정답!', sub: '정답으로 기록되었습니다.', note: `점수는 가장 먼저 맞힌 ${winner || '팀'}이 받았습니다.` }
   }
-  if (quiz.battle && rank === 2) return { tier: 'silver', title: '2등!', points }
-  if (quiz.battle && rank === 3) return { tier: 'bronze', title: '3등!', points }
-  if (quiz.battle && rank) return { tier: 'ok', title: '정답!', points, sub: `${rank}등` }
-  return { tier: 'ok', title: '정답!', points }
+  const by = who ? `${josa(who)} 맞혔습니다` : undefined
+  if (quiz.battle && rank === 2) return { tier: 'silver', title: '2등!', points, sub: by }
+  if (quiz.battle && rank === 3) return { tier: 'bronze', title: '3등!', points, sub: by }
+  if (quiz.battle && rank) return { tier: 'ok', title: '정답!', points, sub: `${rank}등${who ? ` · ${who}` : ''}` }
+  return { tier: 'ok', title: '정답!', points, sub: by }
 }
 
 const listeners = new Set()

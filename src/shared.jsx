@@ -20,7 +20,8 @@ export function teamsOf(data) {
 
 // 서버 상태를 주기적으로 받아 온다. 화면이 다시 보일 때도 받아 온다.
 // interval: 받아 오는 간격(ms). 퀴즈 배틀 중에는 팀 화면이 더 자주 받아 온다(App.jsx).
-export function useRemote(code, onBadCode, interval = POLL_MS) {
+// device: 버스 퀴즈 화면은 휴대폰 번호를 함께 보내 이 휴대폰의 OT 응답(mine)을 받는다.
+export function useRemote(code, onBadCode, interval = POLL_MS, device = null) {
   const [data, setData] = useState(null)
   const [online, setOnline] = useState(true)
 
@@ -28,7 +29,7 @@ export function useRemote(code, onBadCode, interval = POLL_MS) {
   const refresh = useCallback(async () => {
     const startedAt = Date.now()
     try {
-      const next = await rpc('evm_state', { p_code: code })
+      const next = await rpc('evm_state', device ? { p_code: code, p_device: device } : { p_code: code })
       // 늦게 도착한 예전 응답이 새 상태를 덮지 않게 한다(배틀 중에는 3초마다, 답한 뒤에도 바로 받는다).
       if (startedAt < applied.current) return
       applied.current = startedAt
@@ -38,11 +39,13 @@ export function useRemote(code, onBadCode, interval = POLL_MS) {
       if (err instanceof BadCodeError) onBadCode(err)
       else setOnline(false)
     }
-  }, [code, onBadCode])
+  }, [code, onBadCode, device])
 
   useEffect(() => {
     refresh()
-    const timer = setInterval(refresh, interval)
+    // interval이 없으면(버스 퀴즈 결과 화면 등) 더 받지 않는다. 화면이 숨겨진 동안에는 받지 않고, 돌아오면 바로 받는다.
+    if (!interval) return
+    const timer = setInterval(() => document.visibilityState === 'visible' && refresh(), interval)
     const onVisible = () => document.visibilityState === 'visible' && refresh()
     document.addEventListener('visibilitychange', onVisible)
     return () => {
@@ -189,7 +192,7 @@ export function Ranking({ code, data, myTeamId, photos = true }) {
             {teachersOf(data, r.team.id) && <span className="rank-teachers"> {teachersOf(data, r.team.id)}</span>}
             <br />
             미션 {r.count} · 빙고 {r.lines}줄
-            <small>지령 {r.order}점 · 퀴즈 {r.quiz}점</small>
+            <small>지령 {r.order}점 · 퀴즈 {r.quiz}점{r.bus > 0 && ` · 버스 ${r.bus}점`}</small>
           </span>
           <b className="rank-score">{r.score}점</b>
         </li>

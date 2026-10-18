@@ -68,11 +68,44 @@ export function battleOrder(data, quizId) {
     .sort((a, b) => new Date(a.at) - new Date(b.at))
 }
 
-// 배틀 규칙 한 줄(예: "선착순 · 맞힌 순서대로 30·20·10점, 그 뒤는 5점")
+// 배틀 규칙 한 줄(예: "선착순 · 맞힌 순서대로 30·20·10점, 그 뒤는 5점"). 버스 팀 대항은 1/5 점수(6·4·2점, 그 뒤 1점)다.
 export function battleRule(quiz) {
+  if (quiz.round === 'ot') return '점수 없이 모두 함께 답합니다'
   const b = BATTLES.find((x) => x.id === quiz.battle)
-  return b ? `${b.title} · ${b.rule(quiz.points)}` : ''
+  if (!b) return ''
+  if (b.id === 'rush' && quiz.round === 'bus') return `${b.title} · 맞힌 순서대로 6·4·2점, 그 뒤는 1점`
+  return `${b.title} · ${b.rule(quiz.points)}`
 }
+
+// 받침이 있으면 a, 없으면 b를 붙인다(예: 지민이, 지우가). 한글이 아니면 a(b)로 붙인다.
+export function josa(word, a = '이', b = '가') {
+  const last = String(word || '').trim().slice(-1)
+  const code = last.charCodeAt(0) - 0xac00
+  if (code < 0 || code > 11171) return `${word}${a}(${b})`
+  return `${word}${code % 28 ? a : b}`
+}
+
+// 버스 퀴즈(2026-10-18). round가 'ot'(OT, 점수 없음)·'bus'(팀 대항)인 문제
+const busQuizIds = (data) => new Set((data?.quizzes || []).filter((q) => q.round === 'bus').map((q) => `quiz:${q.id}`))
+
+// 팀별 버스 팀 대항 점수
+export function busPoints(data, teamId) {
+  const ids = busQuizIds(data)
+  return (data?.scores || []).filter((s) => s.team_id === teamId && ids.has(s.game_id)).reduce((sum, s) => sum + s.score, 0)
+}
+
+// 버스 순위 [{ team, points }]. 점수가 같으면 팀 번호 순서다.
+export function busRanking(data, teams) {
+  return teams.map((team) => ({ team, points: busPoints(data, team.id) })).sort((a, b) => b.points - a.points || a.team.id - b.team.id)
+}
+
+// 지금 진행 중인 버스 문제(본부는 한 번에 하나만 연다)
+export function currentBusQuestion(data) {
+  return (data?.quizzes || []).filter((q) => q.round && q.status === 'open').sort((a, b) => b.id - a.id)[0] || null
+}
+
+// 버스 문제 목록(본부가 넣은 순서). round: 'ot' | 'bus'
+export const busList = (data, round) => (data?.quizzes || []).filter((q) => q.round === round).sort((a, b) => a.id - b.id)
 
 // 지금 진행 중인 배틀 문제(카운트다운 중이거나 공개된 것). 본부는 한 번에 하나만 연다.
 export function liveBattle(data) {
@@ -97,12 +130,15 @@ export function teamScore(teamId, data, done) {
     if (o.rush) order += rushPoints(rushRank(data, o.id, teamId))
     else if (done[`order:${o.id}`]) order += o.points
   }
+  const busIds = busQuizIds(data)
+  let bus = 0
   for (const s of data?.scores || []) {
     if (s.team_id !== teamId) continue
     if (s.game_id.startsWith('order:')) order += s.score
+    else if (busIds.has(s.game_id)) bus += s.score
     else quiz += s.score
   }
-  return { ...bingo, order, quiz, score: bingo.score + order + quiz }
+  return { ...bingo, order, quiz, bus, score: bingo.score + order + quiz + bus }
 }
 
 export function ranking(data, teams = TEAMS) {

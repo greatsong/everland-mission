@@ -1,7 +1,8 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { TEAMS, MISSIONS, QUIZ_KINDS, SEED_QUIZ, BATTLES, BATTLE_SECONDS, toChosung } from './data.js'
 import { rpc, suggestQuiz, compressPhoto, lazyImport } from './store.js'
-import { doneByTeam, missionInfo, rushRank, locationGroups, agoText, scoreOk, battleOrder, battleRule, serverNow } from './logic.js'
+import { doneByTeam, missionInfo, rushRank, locationGroups, agoText, scoreOk, battleOrder, battleRule, serverNow, busList, busRanking, currentBusQuestion, josa } from './logic.js'
+import qrcode from 'qrcode-generator'
 import { useRemote, Photo, Ranking, teamsOf, LocationList, useLocationShare, teacherMap, withHere, HQ_TEAM, SplitNote, LocateButton, QuizImage } from './shared.jsx'
 
 const TeamMap = lazy(lazyImport(() => import('./TeamMap.jsx')))
@@ -9,10 +10,11 @@ const TeamMap = lazy(lazyImport(() => import('./TeamMap.jsx')))
 // 본부 화면. 본부 코드로 입장한 사람만 사용한다.
 export default function Hq({ session, onLogout }) {
   const { code, role } = session
-  const { data, online, refresh } = useRemote(code, onLogout)
+  const [tab, setTab] = useState('status')
+  // 버스 퀴즈 진행판을 보는 동안은 아이 휴대폰처럼 3초마다 받아 맞힌 순서를 바로 본다.
+  const { data, online, refresh } = useRemote(code, onLogout, tab === 'bus' ? 3000 : undefined)
   const [body, setBody] = useState('')
   const [message, setMessage] = useState('')
-  const [tab, setTab] = useState('status')
   const [tracks, setTracks] = useState(null) // null이면 경로를 표시하지 않는다
   const [until, setUntil] = useState(null) // 선택한 시각(ms). null이면 현재
   const [hours, setHours] = useState(1) // 시간대별 위치 보기 범위(최근 몇 시간)
@@ -25,8 +27,9 @@ export default function Hq({ session, onLogout }) {
     if (locate.lastSent) refresh()
   }, [locate.lastSent, refresh])
 
-  // 경로 보기를 켠 동안 서버 상태가 갱신될 때마다 경로도 다시 받는다.
+  // 경로 보기를 켠 동안 1분마다 경로도 다시 받는다.
   const showTracks = tracks !== null
+  const minute = data ? Math.floor(new Date(data.now).getTime() / 60000) : 0
   useEffect(() => {
     if (!showTracks || role !== 'admin') return
     let alive = true
@@ -34,7 +37,8 @@ export default function Hq({ session, onLogout }) {
     return () => {
       alive = false
     }
-  }, [showTracks, data, code, role])
+    // 경로는 휴대폰마다 45초에 한 점씩 쌓이므로 1분에 한 번만 다시 받는다(서버 상태가 바뀔 때마다 받지 않는다).
+  }, [showTracks, minute, code, role])
 
   if (role !== 'admin') {
     return (
@@ -84,6 +88,7 @@ export default function Hq({ session, onLogout }) {
 
   const TABS = [
     { id: 'status', label: '현황', icon: '📊' },
+    { id: 'bus', label: '버스 퀴즈', icon: '🚌' },
     { id: 'orders', label: '지령·알림', icon: '📢', badge: openOrders },
     { id: 'quiz', label: '퀴즈 출제', icon: '🎲' },
     { id: 'photos', label: '사진', icon: '🖼️', badge: data?.submissions.length || 0 },
@@ -97,7 +102,7 @@ export default function Hq({ session, onLogout }) {
         <h1>🎪 본부 <small>하늘씨앗 초등부 2026 가을 야유회</small></h1>
         <span className={online ? 'net' : 'net off'}>{online ? '연결됨' : '연결 끊김'}</span>
         {data?.quiz_entry && (
-          <button className="entry-chip" onClick={() => setTab('quiz')}>🚌 버스 퀴즈 열림</button>
+          <button className="entry-chip" onClick={() => setTab('bus')}>🚌 버스 퀴즈 열림</button>
         )}
         <LocateButton locate={locate} onOff={() => { setTab('settings'); setMessage('본부 위치 표시가 꺼져 있습니다. 설정 탭의 "위치"에서 켭니다.') }} />
         <a href="#show">슬라이드쇼</a>
@@ -167,6 +172,8 @@ export default function Hq({ session, onLogout }) {
           </section>
         </>
       )}
+
+      {data && tab === 'bus' && <BusBoard code={code} data={data} teams={teams} run={run} />}
 
       {data && tab === 'quiz' && (
         <section>
@@ -271,13 +278,15 @@ function deviceOf(ua = '') {
 function CheckLog({ code, data, run }) {
   const [events, setEvents] = useState(null)
   const [only, setOnly] = useState('problem')
+  // 점검 기록(최대 300건)은 1분에 한 번만 다시 받는다.
+  const minute = data ? Math.floor(new Date(data.now).getTime() / 60000) : 0
   useEffect(() => {
     let alive = true
     rpc('evm_events_list', { p_code: code }).then((list) => alive && setEvents(list)).catch(() => {})
     return () => {
       alive = false
     }
-  }, [code, data])
+  }, [code, minute])
 
   if (!events) return <p className="guide">불러오는 중입니다.</p>
   // 오답이나 마감처럼 정상 흐름에서 나오는 서버 거부는 문제로 세지 않는다.
@@ -548,7 +557,8 @@ function useTick(active) {
 function QuizAdmin({ code, data, teams, run }) {
   const [kind, setKind] = useState('chosung')
   const [busyId, setBusyId] = useState(null) // 배틀 시작을 보내는 중인 문제(두 번 누르지 않게)
-  const list = data.quizzes.filter((q) => q.kind === kind)
+  // 버스 문제(OT·팀 대항)는 버스 퀴즈 탭의 진행판에서 다룬다.
+  const list = data.quizzes.filter((q) => q.kind === kind && !q.round)
   // 배틀 문제는 카운트다운으로만 시작하므로 "모두 출제"에서 뺀다(서버도 뺀다).
   const drafts = list.filter((q) => q.status === 'draft' && !q.battle).length
   const counting = list.some((q) => q.battle && q.status === 'open' && q.starts_at && new Date(q.starts_at) > serverNow(data))
@@ -572,12 +582,10 @@ function QuizAdmin({ code, data, teams, run }) {
       <div className="seg">
         {QUIZ_KINDS.map((k) => (
           <button key={k.id} className={kind === k.id ? 'on' : ''} onClick={() => setKind(k.id)}>
-            {k.icon} {k.title} {data.quizzes.filter((q) => q.kind === k.id).length}
+            {k.icon} {k.title} {data.quizzes.filter((q) => q.kind === k.id && !q.round).length}
           </button>
         ))}
       </div>
-
-      <BusQuizEntry data={data} run={run} />
 
       <QuizForm key={kind} kind={kind} code={code} run={run} />
 
@@ -665,20 +673,31 @@ function BusQuizEntry({ data, run }) {
     }
   }
 
+  const [bigQr, setBigQr] = useState(false)
+  const players = (data.players || []).length
+
   function toggle() {
-    if (on && !confirm('버스 퀴즈 입장을 닫습니다. 아이들 휴대폰에는 "버스 퀴즈가 끝났습니다"가 나오고, 선생님 휴대폰은 그대로입니다. 닫습니까?')) return
-    run('evm_quiz_entry', { p_on: !on }, on ? '버스 퀴즈 입장을 닫았습니다.' : '버스 퀴즈 입장을 열었습니다. 아이들이 QR이나 코드로 들어올 수 있습니다.')
+    if (on && !confirm('버스 퀴즈 입장을 닫고 결과를 보냅니다. 아이들 휴대폰에는 결과 화면이 나오고, 선생님 휴대폰은 그대로입니다. 닫습니까?')) return
+    run('evm_quiz_entry', { p_on: !on }, on ? '버스 퀴즈 입장을 닫고 결과를 보냈습니다.' : '버스 퀴즈 입장을 열었습니다. 아이들이 QR이나 코드로 들어올 수 있습니다.')
   }
 
   return (
     <div className={`entry-panel${on ? ' on' : ''}`}>
       <p className="entry-title">
-        🚌 버스 퀴즈 입장 (아이들 휴대폰) <b className={`status-chip ${on ? 'open' : 'closed'}`}>{on ? '열림' : '닫힘'}</b>
+        🚌 입장 <b className={`status-chip ${on ? 'open' : 'closed'}`}>{on ? `열림 · ${players}명` : '닫힘'}</b>
       </p>
-      <p className="guide">
-        열면 아이들이 QR이나 코드로 들어와 팀을 고르고 퀴즈만 풉니다. 빙고·사진·지도·위치는 볼 수 없습니다.
-        도착하면 닫습니다. 닫으면 아이들 휴대폰에는 "버스 퀴즈가 끝났습니다"가 나오고, 선생님 휴대폰은 그대로입니다.
-      </p>
+      {url && (
+        <button type="button" className="qr-btn" onClick={() => setBigQr(true)} aria-label="입장 QR 크게 보기">
+          <QrSvg text={url} />
+          <small>눌러서 크게 보여 줍니다</small>
+        </button>
+      )}
+      {bigQr && (
+        <div className="zoom-back qr-zoom" onClick={() => setBigQr(false)} role="dialog" aria-label="입장 QR">
+          <div className="qr-big"><QrSvg text={url} /><p>🚌 휴대폰 카메라로 찍으면 버스 퀴즈에 들어갑니다</p></div>
+          <p>화면을 누르면 닫힙니다</p>
+        </div>
+      )}
       {data.quiz_code ? (
         <p className="order-meta">
           코드 <b>{data.quiz_code}</b> · <button className="link" onClick={copy}>{copied ? '복사했습니다' : '입장 주소 복사'}</button>
@@ -686,8 +705,196 @@ function BusQuizEntry({ data, run }) {
       ) : (
         <p className="error">버스 퀴즈 코드가 등록되지 않았습니다.</p>
       )}
-      <button className={on ? 'ghost' : 'primary'} disabled={!data.quiz_code} onClick={toggle}>{on ? '입장 닫기' : '입장 열기'}</button>
+      <button className={on ? 'ghost' : 'primary'} disabled={!data.quiz_code} onClick={toggle}>{on ? '입장 닫고 결과 보내기' : '입장 열기'}</button>
+      <p className="guide">열면 아이들이 이름과 팀을 고르고 퀴즈만 풉니다. 빙고·사진·지도·위치는 볼 수 없습니다. 도착하면 닫습니다.</p>
     </div>
+  )
+}
+
+// 입장 QR(SVG). 아이들 휴대폰 카메라로 찍으면 버스 퀴즈 주소가 열린다.
+function QrSvg({ text }) {
+  const svg = useMemo(() => {
+    const qr = qrcode(0, 'M')
+    qr.addData(text)
+    qr.make()
+    return qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true })
+  }, [text])
+  return <span className="qr-svg" dangerouslySetInnerHTML={{ __html: svg }} />
+}
+
+// OT는 OX만 낸다(사람마다 한 번 답하고 정답 수를 세므로 단답형은 맞지 않는다).
+// 팀 대항은 단답형만 낸다. OX·객관식은 팀에서 한 번만 답하므로 아이 한 명이 잘못 누르면 팀 전체가 끝난다.
+const ROUND_KINDS = { ot: ['ox'], bus: ['image', 'chosung', 'nonsense'] }
+const quizIcon = (q) => QUIZ_KINDS.find((k) => k.id === q.kind)?.icon || '❓'
+
+// 버스 퀴즈 진행판(본부, 2026-10-18). 왼쪽은 문제 순서, 가운데는 지금 문제, 오른쪽은 순위·입장.
+// 아이들 화면은 여기서 시작한 문제 하나만 보여 준다. "다음 문제"는 OT부터 넣은 순서대로 시작한다.
+function BusBoard({ code, data, teams, run }) {
+  const ot = busList(data, 'ot')
+  const bus = busList(data, 'bus')
+  const current = currentBusQuestion(data)
+  const next = [...ot, ...bus].find((q) => q.status === 'draft')
+  const [seconds, setSeconds] = useState(BATTLE_SECONDS[0])
+  const [busy, setBusy] = useState(false)
+  const [adding, setAdding] = useState(null) // 'ot' | 'bus' | null
+  const [addKind, setAddKind] = useState('ox')
+  const counting = current?.starts_at && new Date(current.starts_at) > serverNow(data)
+  useTick(Boolean(counting))
+
+  const stage = (q) => {
+    const list = q.round === 'ot' ? ot : bus
+    return `${q.round === 'ot' ? '📚 OT' : '⚡ 팀 대항'} ${list.findIndex((x) => x.id === q.id) + 1}/${list.length}`
+  }
+
+  async function start(q) {
+    if (busy) return
+    if (current && current.id !== q.id && !confirm('진행 중인 문제를 마감하고 이 문제를 시작합니다. 진행합니까?')) return
+    setBusy(true)
+    const secs = q.round === 'ot' ? 0 : seconds
+    await run('evm_bus_start', { p_id: q.id, p_seconds: secs }, `${stage(q)} 문제를 시작했습니다.${secs ? ` ${secs}초 뒤에 공개됩니다.` : ''}`)
+    setBusy(false)
+  }
+
+  function openAdd(round) {
+    setAdding(round)
+    setAddKind(ROUND_KINDS[round][0])
+  }
+
+  const rows = busRanking(data, teams)
+  const players = data.players || []
+
+  return (
+    <div className="bus-board">
+      <div className="bus-grid">
+        <section className="bus-col">
+          <h3>📚 OT · 점수 없음</h3>
+          {ot.map((q) => <BusRow key={q.id} q={q} stage={stage(q)} current={current} onStart={start} run={run} />)}
+          <button className="link" onClick={() => openAdd('ot')}>+ OT 문제 추가</button>
+          <h3>⚡ 팀 대항 · 6·4·2점</h3>
+          {bus.map((q) => <BusRow key={q.id} q={q} stage={stage(q)} current={current} onStart={start} run={run} />)}
+          {!bus.length && <p className="hint">아직 팀 대항 문제가 없습니다.</p>}
+          <button className="link" onClick={() => openAdd('bus')}>+ 팀 대항 문제 추가</button>
+        </section>
+
+        <section className="bus-col bus-now">
+          {current ? <BusNow quiz={current} stage={stage(current)} data={data} teams={teams} code={code} /> : (
+            <p className="guide">{next ? `진행 중인 문제가 없습니다. 다음: ${stage(next)} ${next.body}` : '모든 문제를 마쳤습니다. 입장을 닫으면 아이들 휴대폰에 결과가 나옵니다.'}</p>
+          )}
+          <div className="bus-actions">
+            {current && current.status === 'open' && (
+              <button className="ghost" onClick={() => run('evm_quiz_set', { p_id: current.id, p_status: 'closed' }, '마감하고 정답을 공개했습니다.')}>마감하고 정답 공개</button>
+            )}
+            {next && (
+              <button className="primary" disabled={busy} onClick={() => start(next)}>
+                ▶ 다음 문제 시작{next.round === 'bus' ? ` (${seconds}초 뒤 공개)` : ''}
+              </button>
+            )}
+          </div>
+          {next?.round === 'bus' && (
+            <div className="seg">
+              {BATTLE_SECONDS.map((s) => (
+                <button key={s} type="button" className={seconds === s ? 'on' : ''} onClick={() => setSeconds(s)}>{s}초 뒤 공개</button>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="bus-col">
+          <h3>🏆 버스 순위 · 미션 점수에 그대로 더함</h3>
+          {rows.map((r) => (
+            <div key={r.team.id} className="bus-rank">
+              <b>{rows.filter((x) => x.points > r.points).length + 1}</b><span className="tn" style={{ background: r.team.color }}>{r.team.name}</span><b>{r.points}점</b>
+            </div>
+          ))}
+          <BusQuizEntry data={data} run={run} />
+          <h3>입장한 사람 {players.length}명</h3>
+          {teams.map((t) => {
+            const list = players.filter((p) => p.team_id === t.id)
+            return (
+              <p key={t.id} className="order-meta player-list">
+                <b style={{ color: t.color }}>{t.name}</b> {list.length}명{' '}
+                {list.map((p) => (
+                  <span key={p.device} className="player-chip">
+                    {p.name}
+                    <button className="link" aria-label={`${p.name} 내보내기`}
+                      onClick={() => confirm(`${josa(p.name, '을', '를')} 내보냅니까? 그 휴대폰은 다시 입장해야 답할 수 있습니다.`) && run('evm_player_remove', { p_device: p.device }, '내보냈습니다.')}>✕</button>
+                  </span>
+                ))}
+              </p>
+            )
+          })}
+          {players.length > 0 && (
+            <button className="link" onClick={() => confirm('아이들 이름을 모두 지웁니까? 점수는 남고, 맞힌 사람 이름과 입장 목록이 지워집니다. 버스 퀴즈가 끝난 뒤에 누릅니다.') && run('evm_bus_forget', {}, '아이들 이름을 지웠습니다.')}>
+              버스 퀴즈 뒤 아이들 이름 지우기
+            </button>
+          )}
+        </section>
+      </div>
+
+      {adding && (
+        <div className="bus-add">
+          <p className="entry-title">{adding === 'ot' ? '📚 OT 문제 추가 (점수 없음)' : '⚡ 팀 대항 문제 추가'}
+            <button className="link" onClick={() => setAdding(null)}>닫기</button></p>
+          <div className="seg">
+            {ROUND_KINDS[adding].map((k) => {
+              const kind = QUIZ_KINDS.find((x) => x.id === k)
+              return <button key={k} type="button" className={addKind === k ? 'on' : ''} onClick={() => setAddKind(k)}>{kind.icon} {kind.title}</button>
+            })}
+          </div>
+          <QuizForm key={`${adding}:${addKind}`} kind={addKind} code={code} run={run} round={adding} onAdded={() => {}} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+// 진행판 목록 한 줄: 상태, 문제, 시작·삭제
+function BusRow({ q, stage, current, onStart, run }) {
+  const now = current?.id === q.id
+  const state = now ? 'now' : q.status === 'closed' ? 'done' : ''
+  return (
+    <div className={`qrow ${state}`}>
+      <span className="dot" />
+      <span className="qrow-body">{quizIcon(q)} {q.body}</span>
+      {!now && <button className="link" onClick={() => onStart(q)}>{q.status === 'closed' ? '다시' : '시작'}</button>}
+      <button className="link" aria-label={`${stage} 삭제`}
+        onClick={() => confirm('이 문제를 삭제합니까? 이 문제로 받은 점수와 응답도 함께 지워집니다.') && run('evm_quiz_delete', { p_id: q.id }, '삭제했습니다.')}>✕</button>
+    </div>
+  )
+}
+
+// 진행판 가운데: 지금 문제와 팀별 응답 현황
+function BusNow({ quiz, stage, data, teams, code }) {
+  const left = quiz.starts_at ? Math.ceil((new Date(quiz.starts_at) - serverNow(data)) / 1000) : 0
+  const startAt = quiz.starts_at ? new Date(quiz.starts_at) : null
+  const order = quiz.round === 'bus' ? battleOrder(data, quiz.id) : []
+  const players = data.players || []
+  return (
+    <>
+      <p className="order-meta">{stage} · <b className="status-chip open">{left > 0 ? `${left}초 뒤 공개` : '진행 중'}</b>{quiz.battle && ` · ${battleRule(quiz)}`}</p>
+      {quiz.kind === 'image' && <QuizImage code={code} quiz={quiz} small />}
+      <p className="bus-now-q">{quiz.body}</p>
+      <p className="order-meta">정답: {quiz.kind === 'ox' ? (quiz.answer === 'O' ? '⭕ O' : '❌ X') : quiz.choices ? quiz.choices[Number(quiz.answer)] : quiz.answer}</p>
+      {teams.map((t) => {
+        if (quiz.round === 'ot') {
+          const s = (data.ot_stats || []).find((x) => x.quiz_id === quiz.id && x.team_id === t.id) || { answered: 0, correct: 0 }
+          const n = players.filter((p) => p.team_id === t.id).length
+          return (
+            <div key={t.id} className="trow"><span className="tn" style={{ background: t.color }}>{t.name}</span>
+              <span>{s.answered}/{n}명 답함 · 정답 {s.correct}</span><b /></div>
+          )
+        }
+        const i = order.findIndex((s) => s.team_id === t.id)
+        const s = order[i]
+        const wrong = !s && data.scores.some((x) => x.team_id === t.id && x.game_id === `quiz:${quiz.id}`)
+        const after = s && startAt ? Math.max(0, Math.round((new Date(s.at) - startAt) / 1000)) : null
+        return (
+          <div key={t.id} className="trow"><span className="tn" style={{ background: t.color }}>{t.name}</span>
+            <span>{s ? `${['🥇', '🥈', '🥉'][i] || `${i + 1}등`} ${s.who || ''}${after != null ? ` · ${after}초` : ''}` : wrong ? '오답' : '아직'}</span>
+            <b>{s ? `+${s.score}` : ''}</b></div>
+        )
+      })}
+    </>
   )
 }
 
@@ -715,11 +922,12 @@ function draftArgs(kind, mode, d) {
   return { p_body: d.body.trim(), p_choices: null, p_answer: d.answer.trim(), p_hint: null }
 }
 
-function QuizForm({ kind, code, run }) {
+// round: 버스 진행판에서 쓸 때 'ot'(점수 없음) 또는 'bus'(팀 대항, 작은 점수). 이때는 보관만 하고 진행판에서 시작한다.
+function QuizForm({ kind, code, run, round = null, onAdded }) {
   const [mode, setMode] = useState('choice') // 성경 퀴즈: choice(객관식) | short(단답형)
   const [draft, setDraft] = useState(emptyDraft)
-  const [points, setPoints] = useState(10)
-  const [battle, setBattle] = useState(null) // null(보통) | 'rush'(선착순) | 'first'(1등만)
+  const [points, setPoints] = useState(round === 'bus' ? 4 : 10)
+  const [battle, setBattle] = useState(round === 'bus' ? 'rush' : null) // null(보통) | 'rush'(선착순) | 'first'(1등만)
   const [seconds, setSeconds] = useState(BATTLE_SECONDS[0])
   const [busy, setBusy] = useState(false) // 보내는 동안 다시 누르지 못하게 한다(같은 문제가 여러 번 등록된 기록이 있다)
   const [photoError, setPhotoError] = useState('')
@@ -729,8 +937,9 @@ function QuizForm({ kind, code, run }) {
   const isChoice = kind === 'bible' && mode === 'choice'
   const hasHint = kind === 'chosung' || kind === 'image'
   // 선착순(rush)은 점수가 순서로 정해지므로 문제 점수를 고르지 않는다. 서버 점수 칸에는 1등 점수(30)를 둔다.
-  const pointsFor = battle === 'rush' ? 30 : points
-  const pointChoices = battle === 'first' ? [5, 10, 20, 30] : [5, 10, 20]
+  // 버스 팀 대항은 현장의 1/5 점수다(선착순 6·4·2·1점, 그 밖은 2·4·6점 중에서).
+  const pointsFor = round === 'ot' ? 1 : battle === 'rush' ? (round === 'bus' ? 6 : 30) : points
+  const pointChoices = round === 'bus' ? [2, 4, 6] : battle === 'first' ? [5, 10, 20, 30] : [5, 10, 20]
 
   async function onPhoto(e) {
     const file = e.target.files?.[0]
@@ -750,10 +959,12 @@ function QuizForm({ kind, code, run }) {
     setBusy(true)
     const id = await run(
       'evm_quiz_add',
-      { p_kind: kind, p_photo: null, p_note: draft.note.trim() || null, ...args, p_points: pointsFor, p_open: start && !battle, p_battle: battle },
-      start ? '출제했습니다.' : '보관했습니다.',
+      { p_kind: kind, p_photo: null, p_note: draft.note.trim() || null, ...args, p_points: pointsFor, p_open: start && !battle && !round,
+        p_battle: round === 'ot' ? null : battle, p_round: round },
+      round ? '진행판 목록에 넣었습니다.' : start ? '출제했습니다.' : '보관했습니다.',
     )
-    if (id && start && battle) {
+    if (id && round) onAdded?.()
+    if (id && start && battle && !round) {
       await run('evm_quiz_battle_start', { p_id: id, p_seconds: seconds }, `배틀을 시작했습니다. ${seconds}초 뒤에 모든 팀에게 공개됩니다.`)
     }
     setBusy(false)
@@ -835,7 +1046,7 @@ function QuizForm({ kind, code, run }) {
           </label>
         )}
 
-        <div className="field">
+        {!round && <div className="field">
           <span>점수 방식</span>
           <div className="seg">
             <button type="button" className={!battle ? 'on' : ''} onClick={() => setBattle(null)}>보통</button>
@@ -846,10 +1057,16 @@ function QuizForm({ kind, code, run }) {
           <small>
             {!battle
               ? '맞힌 팀은 모두 같은 점수를 받습니다.'
-              : `퀴즈 배틀: ${BATTLES.find((b) => b.id === battle).rule(points)}. 시작하면 카운트다운 뒤에 모든 팀에게 함께 공개되고, 서버가 답을 받은 순서로 정합니다.`}
+              : `퀴즈 배틀: ${battleRule({ battle, points, round }).replace(/^[^·]+· /, '')}. 시작하면 카운트다운 뒤에 모든 팀에게 함께 공개되고, 서버가 답을 받은 순서로 정합니다.`}
           </small>
-        </div>
+        </div>}
 
+        {round ? (
+          <div className="composer-actions">
+            {round === 'bus' && <p className="hint">⚡ 선착순 · 맞힌 순서대로 6·4·2점, 그 뒤는 1점</p>}
+            <button type="button" className="primary" disabled={!args || busy} onClick={() => submit(false)}>{busy ? '넣는 중입니다' : '진행판에 문제 추가'}</button>
+          </div>
+        ) : (
         <div className="composer-actions">
           {battle !== 'rush' && (
             <div className="seg">
@@ -870,8 +1087,11 @@ function QuizForm({ kind, code, run }) {
             {busy ? '보내는 중입니다' : battle ? '바로 배틀 시작' : '바로 출제'}
           </button>
         </div>
+        )}
         <p className="guide">
-          {battle
+          {round
+            ? '추가한 문제는 진행판 목록 끝에 들어갑니다. 진행판에서 한 문제씩 시작합니다.'
+            : battle
             ? '배틀은 한 번에 하나만 진행됩니다. 새 배틀을 시작하면 진행 중인 배틀 문제는 마감됩니다. 보관한 배틀 문제는 아래 목록에서 시작합니다.'
             : '바로 출제한 문제는 모든 팀의 퀴즈 대결 탭에 곧바로 나옵니다. 보관한 문제는 아래 목록에서 골라 출제합니다.'}
         </p>
@@ -880,10 +1100,15 @@ function QuizForm({ kind, code, run }) {
       <div className="composer-preview">
         <p className="preview-label">팀 화면 미리보기</p>
         <div className="card">
-          {battle ? (
+          {round === 'ot' ? (
+            <>
+              <p className="battle-tag">📚 OT</p>
+              <p className="hint">점수 없이 모두 함께 답합니다</p>
+            </>
+          ) : battle ? (
             <>
               <p className="battle-tag">⚡ 퀴즈 배틀</p>
-              <p className="hint">{battleRule({ battle, points: pointsFor })}</p>
+              <p className="hint">{battleRule({ battle, points: pointsFor, round })}</p>
             </>
           ) : (
             <p className="hint">{points}점{kind === 'chosung' && draft.hint.trim() && ` · 힌트를 보면 ${Math.ceil(points / 2)}점`}</p>
