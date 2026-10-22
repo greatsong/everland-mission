@@ -9,6 +9,7 @@
 - 본부 화면: 같은 주소 뒤에 `#hq`, 슬라이드쇼는 `#show`
 - 입장 코드와 본부 코드, 버스 퀴즈 코드: `_private/codes.txt` (저장소에 올리지 않는다. 대화나 커밋에 적지 않는다)
 - 버스 퀴즈 QR 카드: `_private/bus-quiz-qr.png` (주소 `…/#q=버스퀴즈코드`로 열면 바로 입장). 원본은 `_private/design/bus-quiz-qr-card.html`이고 크롬 headless로 1240×1754 캡처한다. 구글 드라이브 '에버랜드 미션 앱 안내' 폴더에도 같은 카드와 OT OX 캡처(2026-10-18)를 올렸다
+- 사용 안내 카드 뉴스(2026-10-22판): 구글 드라이브 '에버랜드 미션 앱 안내/카드뉴스 10월 22일'의 선생님용 1~7(표지, 버스 퀴즈, 들어가기와 위치 공유, 사진 빙고, 지령과 퀴즈, 함께와 점수, 알아 두면 좋은 것)과 본부용 1~4(하루 흐름, 버스 퀴즈 진행판, 입장 카드와 결과, 에버랜드 진행). 일반 선생님께는 본부용을 보내지 않는다. 원본은 `_private/guide/v6/make_cards.py`(문단은 솔라가 `brief.md`로 쓴 `solar_out.md`), 화면은 `_private/guide/shots/v6`(시험용 가짜 서버, 선생님 이름 ○○○)
 - 로컬 개발: 포트 4058. 미리보기 설정은 `greatsong-project/etc/.claude/launch.json`의 `everland-mission`
 
 ## 구조
