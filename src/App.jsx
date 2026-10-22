@@ -40,6 +40,17 @@ const keepTeacher = (s) => { try { localStorage.setItem(TEACHER_KEY, JSON.string
 const takeTeacher = () => { try { const s = JSON.parse(localStorage.getItem(TEACHER_KEY)); localStorage.removeItem(TEACHER_KEY); return s } catch { return null } }
 const hasTeacher = () => { try { return Boolean(localStorage.getItem(TEACHER_KEY)) } catch { return false } }
 
+// 기록 지우기(#reset, main.jsx)로 열었으면 입장 화면에 알린다(화면을 처음 그릴 때 한 번만 읽는다).
+const RESET_NOTICE = (() => {
+  try {
+    if (!sessionStorage.getItem('evm:reset')) return ''
+    sessionStorage.removeItem('evm:reset')
+    return '이 휴대폰에 남아 있던 예전 기록을 지웠습니다. 입장 코드를 다시 넣습니다.'
+  } catch {
+    return ''
+  }
+})()
+
 // QR 주소(…/#q=코드)로 열면 버스 퀴즈 코드로 바로 입장한다. 코드는 주소에서 지운다.
 function takeQrCode() {
   const m = location.hash.match(/^#q=([^&]+)/)
@@ -50,7 +61,7 @@ function takeQrCode() {
 
 export default function App() {
   const [session, setSessionState] = useState(loadSession)
-  const [notice, setNotice] = useState('') // 입장 화면 안내(버스 퀴즈가 끝났을 때 등)
+  const [notice, setNotice] = useState(RESET_NOTICE) // 입장 화면 안내(버스 퀴즈가 끝났을 때, 기록을 지웠을 때 등)
   const [qrCode] = useState(takeQrCode)
   const route = useHashRoute()
 
@@ -211,6 +222,11 @@ function TeamHome({ session, onLeave, onLogout }) {
   const [focusQuiz, setFocusQuiz] = useState(null) // 배틀 알림에서 고른 문제
   const { data, online, refresh } = useRemote(code, onLogout, battleOn ? POLL_BATTLE_MS : tab === 'games' ? POLL_GAMES_MS : undefined, deviceId())
   useEffect(() => setBattleOn(Boolean(liveBattle(data))), [data])
+  // 팀 수가 줄어 없어진 팀(예: 예전 6팀)으로 저장된 휴대폰은 팀 선택 화면으로 돌려보낸다(2026-10-22 최종 편성 5팀).
+  const teamCount = data?.team_count
+  useEffect(() => {
+    if (teamCount && teamId > teamCount) onLeave()
+  }, [teamCount, teamId, onLeave])
   const clearFocus = useCallback(() => setFocusQuiz(null), [])
 
   useBattleWatch(code, data, teamId)

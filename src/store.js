@@ -4,6 +4,18 @@
 const URL_BASE = import.meta.env.VITE_SUPABASE_URL
 const KEY = import.meta.env.VITE_SUPABASE_KEY
 
+// 휴대폰 기록 지우기(2026-10-22, 화면을 그리기 전에 실행되도록 이 모듈에 둔다): 주소 끝에 #reset을 붙여 열면 이 휴대폰에 남은 예전 기록(입장 코드와 팀, 이 휴대폰을 가진 선생님,
+// 버스 퀴즈 입장, 아직 올리지 못한 사진)을 모두 지우고 입장 화면을 연다. 예전 시험 때 들어간 팀으로 계속 열리는 휴대폰에 쓴다.
+if (location.hash === '#reset') {
+  try {
+    Object.keys(localStorage).filter((k) => k.startsWith('evm:')).forEach((k) => localStorage.removeItem(k))
+    sessionStorage.setItem('evm:reset', '1')
+  } catch {
+    /* 저장이 막힌 브라우저에는 지울 기록이 없다 */
+  }
+  history.replaceState(null, '', location.pathname + location.search)
+}
+
 const SESSION_KEY = 'evm:v2:session'
 const stateKey = (teamId) => `evm:v2:state:${teamId}`
 
