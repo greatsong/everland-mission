@@ -61,7 +61,7 @@ export default function App() {
   }, [])
   // err가 있으면 서버가 코드를 거부한 것이다. 버스 퀴즈 입장이 닫혔으면 그 안내를 남긴다.
   const logout = useCallback((err) => {
-    if (err?.ended) setNotice(QUIZ_ENDED_TEXT)
+    if (err?.ended) setNotice(err.waiting ? QUIZ_CLOSED_TEXT : QUIZ_ENDED_TEXT)
     setSession(null)
   }, [setSession])
 

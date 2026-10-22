@@ -154,6 +154,11 @@ language plpgsql stable security definer set search_path = public as $$
 declare v_role text := evm_login(p_code);
 begin
   if v_role = 'ended' then
+    -- 버스 퀴즈를 아직 시작하지 않았으면(OT·팀 대항이 모두 시작 전) '준비 중'으로 알린다(2026-10-22).
+    -- 미리 들어와 둔 휴대폰이 출발 전에 결과 화면을 보지 않게 한다. 시작한 뒤에 닫으면 결과(ENDED)다.
+    if not exists (select 1 from evm_quizzes where round in ('ot', 'bus') and status <> 'draft') then
+      raise exception 'EVM_QUIZ_WAITING' using errcode = 'P0001';
+    end if;
     raise exception 'EVM_QUIZ_ENDED' using errcode = 'P0001';
   end if;
   if v_role is null then
@@ -184,6 +189,24 @@ begin
   if p_on then
     insert into evm_config (key, value) values ('quiz_open', 'off') on conflict (key) do update set value = excluded.value;
   end if;
+end $$;
+
+-- 버스 퀴즈 최종 결과(2026-10-22). 입장이 닫힌 뒤 아이 휴대폰의 결과 화면이 부른다.
+-- 휴대폰이 마지막 문제 때 꺼져 있었어도 최종 점수와 MVP를 그리게 한다. 버스 문제 번호, 버스 점수(맞힌 사람 이름 포함), 팀 정보만 보낸다.
+create or replace function evm_bus_results(p_code text) returns json
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if evm_login(p_code) is null then
+    raise exception 'EVM_BAD_CODE' using errcode = 'P0001';
+  end if;
+  return json_build_object(
+    'team_count', coalesce((select value::int from evm_config where key = 'team_count'), 6),
+    'teams', coalesce((select json_agg(json_build_object('team_id', team_id, 'teachers', teachers)) from evm_teams), '[]'::json),
+    'quizzes', coalesce((select json_agg(json_build_object('id', id, 'round', round)) from evm_quizzes where round in ('ot', 'bus')), '[]'::json),
+    'scores', coalesce((
+      select json_agg(json_build_object('team_id', team_id, 'game_id', game_id, 'score', score, 'ok', ok,
+        'who', case when coalesce(ok, score > 0) then who end, 'at', created_at))
+      from evm_scores where game_id in (select 'quiz:' || id from evm_quizzes where round = 'bus')), '[]'::json));
 end $$;
 
 -- 연습 문제 목록과 채점(2026-10-18). OT와 연습 문제를 순서대로 보낸다(정답·설명은 답한 뒤 채점 결과로만 보낸다).
@@ -1055,7 +1078,7 @@ grant execute on function
   evm_quiz_add(text, text, text, json, text, text, int, boolean, text, text, text, text), evm_quiz_battle_start(text, bigint, int),
   evm_bus_start(text, bigint, int), evm_player_join(text, text, int, text), evm_player_remove(text, text), evm_bus_forget(text),
   evm_quiz_edit(text, bigint, text, text, text, text, json), evm_bus_reset(text),
-  evm_quiz_practice(text, boolean), evm_practice_answer(text, bigint, text),
+  evm_quiz_practice(text, boolean), evm_practice_answer(text, bigint, text), evm_bus_results(text),
   evm_quiz_entry(text, boolean),
   evm_quiz_seed(text, json), evm_quiz_set(text, bigint, text),
   evm_quiz_open_all(text, text), evm_quiz_delete(text, bigint), evm_act_submit(text, int, text, text),

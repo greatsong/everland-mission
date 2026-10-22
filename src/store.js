@@ -78,6 +78,13 @@ async function rpcRead(fn, res) {
     } catch {
       /* JSON이 아닌 오류 본문은 그대로 사용한다 */
     }
+    if (String(message).includes('EVM_QUIZ_WAITING')) {
+      // 버스 퀴즈를 아직 시작하지 않았다(출발 전 닫힘). 미리 들어와 둔 휴대폰은 준비 중 화면에서 기다린다.
+      const err = new BadCodeError(QUIZ_CLOSED_TEXT)
+      err.ended = true
+      err.waiting = true
+      throw err
+    }
     if (String(message).includes('EVM_QUIZ_ENDED')) {
       // 본부가 버스 퀴즈 입장을 닫았다. 아이들 휴대폰 수십 대가 보내므로 점검 기록에는 남기지 않는다.
       const err = new BadCodeError(QUIZ_ENDED_TEXT)

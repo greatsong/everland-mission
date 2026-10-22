@@ -255,7 +255,13 @@ export function MvpList({ data, teams }) {
 }
 
 // 6. 결과: 본부가 입장을 닫으면 나온다. 마지막으로 받은 상태로 위에는 팀 점수(시상대·팀 순위), 아래에는 MVP 상위 5명을 보여 준다.
-function BusResult({ data, onExit }) {
+function BusResult({ code, data: saved, onExit }) {
+  // 서버의 최종 결과를 받아 그린다(마지막 문제 때 휴대폰이 꺼져 있었어도 맞게). 받지 못하면 휴대폰에 남긴 마지막 상태를 쓴다.
+  const [fresh, setFresh] = useState(null)
+  useEffect(() => {
+    rpc('evm_bus_results', { p_code: code }).then((r) => { setFresh(r); saveLast(r) }).catch(() => {})
+  }, [code])
+  const data = fresh || saved
   const rows = data ? busRanking(data, teamsOf(data)) : []
   const scored = rows.some((r) => r.points > 0)
   const podium = [rows[1], rows[0], rows[2]].filter((r) => r && r.points > 0)
@@ -325,13 +331,19 @@ export function PlayerHome({ session, onLeave, onLogout, onTeacher }) {
   const { code, teamId, name } = session
   const team = TEAMS.find((t) => t.id === teamId)
   const [ended, setEnded] = useState(false)
+  const [waiting, setWaiting] = useState(false) // 닫혀 있지만 버스 퀴즈를 아직 시작하지 않음(출발 전)
   const last = useRef(null) // 입장이 닫혔을 때 결과 화면에 쓸 마지막 상태
-  const onBad = useCallback((err) => (err?.ended ? setEnded(true) : onLogout(err)), [onLogout])
+  const onBad = useCallback((err) => {
+    if (!err?.ended) return onLogout(err)
+    setEnded(true)
+    setWaiting(Boolean(err.waiting))
+  }, [onLogout])
   const [battleOn, setBattleOn] = useState(false)
   // 결과 화면(입장이 닫힘)에서는 30초마다만 확인한다. 본부가 입장을 다시 열면 문제 화면으로 돌아간다.
+  // 출발 전 준비 중 화면에서는 10초마다 확인한다(본부가 열면 바로 바뀌게).
   const [practiceOn, setPracticeOn] = useState(false)
   // 연습 중에는 10초마다 확인한다(본부가 버스 진행을 켜면 버스 화면으로 바뀐다).
-  const { data, online, refresh } = useRemote(code, onBad, ended ? 30000 : battleOn ? POLL_BATTLE_MS : practiceOn ? 10000 : POLL_BUS_MS, deviceId())
+  const { data, online, refresh } = useRemote(code, onBad, ended ? (waiting ? 10000 : 30000) : battleOn ? POLL_BATTLE_MS : practiceOn ? 10000 : POLL_BUS_MS, deviceId())
   const practice = Boolean(data?.practice)
   useEffect(() => {
     if (data) {
@@ -342,19 +354,22 @@ export function PlayerHome({ session, onLeave, onLogout, onTeacher }) {
     setBattleOn(Boolean(liveBattle(data)))
     setPracticeOn(Boolean(data?.practice))
   }, [data])
-  // 화면을 열 때 입장 기록을 다시 남긴다(본부가 기록을 지운 뒤에도 저장된 이름·팀으로 바로 답할 수 있게).
-  // 연습에서 버스 진행으로 바뀔 때도 다시 남긴다(연습 중 입장은 서버가 기록하지 않는다).
+  // 버스 진행 화면이 될 때마다 입장 기록을 다시 남긴다(본부가 기록을 지운 뒤에도 저장된 이름·팀으로 바로 답할 수 있게).
+  // 연습·준비 중·결과 화면에서 버스 진행으로 바뀔 때도 남긴다. 그 화면들에서는 서버가 입장을 받지 않는다(2026-10-22 시험에서
+  // 준비 중 화면에서 바뀐 휴대폰의 입장 기록이 빠지던 문제). 기록한 뒤 상태를 다시 받아 대기실의 우리 팀 인원이 바로 맞게 한다.
+  const live = Boolean(data) && !practice && !ended
   useEffect(() => {
-    rpc('evm_player_join', { p_code: code, p_device: deviceId(), p_team: teamId, p_name: name }).catch(() => {})
-  }, [code, teamId, name, practice])
+    if (!live) return
+    rpc('evm_player_join', { p_code: code, p_device: deviceId(), p_team: teamId, p_name: name }).then(() => refresh()).catch(() => {})
+  }, [code, teamId, name, live, refresh])
   useBattleWatch(code, data, teamId)
 
   useEffect(() => {
     report('enter', `${team.name} 버스 퀴즈 입장 · 화면 ${window.innerWidth}x${window.innerHeight}`)
   }, [team.name])
 
-  if (ended && last.current?.practice) return <PracticeEnded onExit={() => onLogout()} onTeacher={onTeacher} />
-  if (ended) return <BusResult data={last.current || loadLast()} onExit={() => onLogout()} />
+  if (ended && (waiting || last.current?.practice)) return <BusWaiting team={team} name={name} onExit={() => onLogout()} onTeacher={onTeacher} />
+  if (ended) return <BusResult code={code} data={last.current || loadLast()} onExit={() => onLogout()} />
 
   const teams = teamsOf(data)
   const current = currentBusQuestion(data)
@@ -465,18 +480,21 @@ function PracticeHome({ code, data, name }) {
   )
 }
 
-// 연습이 닫혔을 때(본부가 연습을 끔). 버스 진행이 열리면 30초 안에 버스 화면으로 바뀐다.
-function PracticeEnded({ onExit, onTeacher }) {
+// 출발 전 준비 중(2026-10-22). 입장이 닫혀 있지만 버스 퀴즈를 아직 시작하지 않았을 때(연습을 닫은 뒤 포함) 보인다.
+// 미리 들어와 둔 휴대폰은 이름과 팀이 그대로 남아 있고, 본부가 버스 진행을 켜면 10초 안에 대기실로 바뀐다.
+function BusWaiting({ team, name, onExit, onTeacher }) {
   return (
     <main className="select bus-result">
-      <h1>🧪 연습이 끝났습니다</h1>
+      <h1>🚌 버스 퀴즈 준비 중</h1>
       <div className="card bus-hero">
-        <p className="bus-hero-icon">🚌</p>
-        <p className="question">버스에서 만나요</p>
-        <p className="hint">본부가 버스 퀴즈를 열면 이 화면이 바로 바뀝니다</p>
+        <p className="bus-hero-icon">⏳</p>
+        <p className="question">{team.name} {name}, 입장 준비가 끝났습니다</p>
+        <p className="hint">선생님이 버스 퀴즈를 열면 이 화면이 저절로 바뀝니다. 화면을 닫았다가 다시 열어도 이름과 팀은 남아 있습니다.</p>
       </div>
-      <button className="ghost" onClick={onExit}>처음 화면으로</button>
-      {onTeacher && <button className="link" onClick={onTeacher}>선생님 화면으로 돌아가기</button>}
+      <p className="select-links">
+        <button className="link" onClick={() => confirm('이름과 팀을 지우고 처음 화면으로 갑니까?') && onExit()}>다른 이름으로 들어가기</button>
+        {onTeacher && <> · <button className="link" onClick={onTeacher}>선생님 화면으로 돌아가기</button></>}
+      </p>
     </main>
   )
 }
