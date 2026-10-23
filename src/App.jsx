@@ -342,10 +342,6 @@ function TeamHome({ session, onLeave, onLogout }) {
     }))
   }
 
-  // 앨범에서 고른 사진은 언제 어디서 찍었는지 알 수 없으므로, 위치 공유가 켜져 있을 때 방금 이 자리에서 찍었는지 묻는다.
-  const askHere = () =>
-    locate.on && confirm('방금 이 자리에서 찍은 사진입니까? 확인을 누르면 지금 위치를 사진 위치로 남깁니다.')
-
   function remove(missionId) {
     setState((p) => {
       const next = { ...p.done }
@@ -398,7 +394,7 @@ function TeamHome({ session, onLeave, onLogout }) {
       <main className="body">
         {tab === 'bingo' && <LocatePrompt locate={locate} teachers={teachers} />}
         {tab === 'bingo' && (
-          <Bingo code={code} teamId={teamId} board={board} done={done} data={data} refresh={() => { locate.ping(); refresh() }} onCapture={capture} askHere={askHere} onRemove={remove} setNotice={setNotice} />
+          <Bingo code={code} teamId={teamId} board={board} done={done} data={data} refresh={() => { locate.ping(); refresh() }} onCapture={capture} locateOn={locate.on} onRemove={remove} setNotice={setNotice} />
         )}
         {tab === 'games' && <Games code={code} teamId={teamId} data={data} refresh={refreshGames} focus={focusQuiz} onFocused={clearFocus} />}
         {tab === 'together' && <Together code={code} data={data} teamId={teamId} refresh={refresh} />}
@@ -433,9 +429,10 @@ function Cell({ code, teamId, mission, rec, inLine, onClick }) {
   )
 }
 
-function Bingo({ code, teamId, board, done, data, refresh, onCapture, askHere, onRemove, setNotice }) {
+function Bingo({ code, teamId, board, done, data, refresh, onCapture, locateOn, onRemove, setNotice }) {
   const [selected, setSelected] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [askFile, setAskFile] = useState(null) // 앨범에서 고른 사진. 어디에서 찍었는지 답을 기다린다
   const fileRef = useRef(null)
   const albumRef = useRef(null) // 앨범에서 고르기(스크린샷 포함)
 
@@ -457,7 +454,18 @@ function Bingo({ code, teamId, board, done, data, refresh, onCapture, askHere, o
     const file = e.target.files?.[0]
     e.target.value = ''
     if (!file || !selected) return
-    const here = camera || askHere() // 카메라로 찍은 사진은 묻지 않고 지금 위치를 남긴다
+    // 앨범에서 고른 사진은 언제 어디서 찍었는지 알 수 없으므로, 위치 공유가 켜져 있으면 어디에서 찍었는지 묻는다.
+    if (!camera && locateOn) return setAskFile(file)
+    save(file, camera) // 카메라로 찍은 사진은 묻지 않고 지금 위치를 남긴다
+  }
+
+  function answer(here) {
+    const file = askFile
+    setAskFile(null)
+    save(file, here)
+  }
+
+  async function save(file, here) {
     setBusy(true)
     try {
       // 지도에 띄울 작은 사진(긴 변 160px)을 함께 만든다.
@@ -499,26 +507,36 @@ function Bingo({ code, teamId, board, done, data, refresh, onCapture, askHere, o
       <p className="safety">뛰지 않습니다. 사진은 안전한 곳에 멈춰서 찍습니다.</p>
 
       {selected && (
-        <div className="sheet-back" onClick={() => !busy && setSelected(null)}>
-          <div className="sheet" onClick={(e) => e.stopPropagation()}>
-            <p className="sheet-icon">{selected.icon}</p>
-            <h2>{selected.title}</h2>
-            {rec && <SheetPhoto key={rec.at} code={code} teamId={teamId} missionId={selected.id} rec={rec} />}
-            <input ref={fileRef} type="file" accept="image/*" capture="environment" hidden onChange={onPhoto} />
-            <input ref={albumRef} type="file" accept="image/*" hidden onChange={onPhoto} />
-            <button className="primary" disabled={busy} onClick={() => fileRef.current.click()}>
-              {busy ? '저장 중입니다' : rec ? '다시 찍기' : '사진 찍기'}
-            </button>
-            <button className="ghost" disabled={busy} onClick={() => albumRef.current.click()}>
-              앨범에서 고르기
-            </button>
-            {rec && (
-              <button className="link" disabled={busy} onClick={() => confirm('이 사진을 지웁니까? 빙고 칸도 비워집니다.') && onRemove(selected.id)}>
-                사진 지우기
+        <div className="sheet-back" onClick={() => !busy && !askFile && setSelected(null)}>
+          {askFile ? (
+            <div className="sheet sheet-ask" onClick={(e) => e.stopPropagation()}>
+              <p className="sheet-icon">📍</p>
+              <h2>지금 있는 위치에서 찍은 사진인가요?</h2>
+              <p className="sheet-note">지금 위치에서 찍은 사진이면 지도에 사진 위치를 표시합니다.</p>
+              <button className="primary" onClick={() => answer(true)}>지금 위치에서 찍었어요!</button>
+              <button className="ghost" onClick={() => answer(false)}>다른 장소에서 찍었어요!</button>
+            </div>
+          ) : (
+            <div className="sheet" onClick={(e) => e.stopPropagation()}>
+              <p className="sheet-icon">{selected.icon}</p>
+              <h2>{selected.title}</h2>
+              {rec && <SheetPhoto key={rec.at} code={code} teamId={teamId} missionId={selected.id} rec={rec} />}
+              <input ref={fileRef} type="file" accept="image/*" capture="environment" hidden onChange={onPhoto} />
+              <input ref={albumRef} type="file" accept="image/*" hidden onChange={onPhoto} />
+              <button className="primary" disabled={busy} onClick={() => fileRef.current.click()}>
+                {busy ? '저장 중입니다' : rec ? '다시 찍기' : '사진 찍기'}
               </button>
-            )}
-            <button className="ghost" disabled={busy} onClick={() => setSelected(null)}>닫기</button>
-          </div>
+              <button className="ghost" disabled={busy} onClick={() => albumRef.current.click()}>
+                앨범에서 고르기
+              </button>
+              {rec && (
+                <button className="link" disabled={busy} onClick={() => confirm('이 사진을 지웁니까? 빙고 칸도 비워집니다.') && onRemove(selected.id)}>
+                  사진 지우기
+                </button>
+              )}
+              <button className="ghost" disabled={busy} onClick={() => setSelected(null)}>닫기</button>
+            </div>
+          )}
         </div>
       )}
     </>
