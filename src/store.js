@@ -198,19 +198,34 @@ export function fetchPhoto(code, teamId, missionId, at) {
   return photoCache.get(key)
 }
 
-// 사진을 긴 변 720px JPEG로 줄여 dataURL로 돌려준다.
-export function compressPhoto(file, maxSide = 720, quality = 0.7) {
+// 사진을 긴 변 720px JPEG로 줄인다. 복잡한 그림도 서버의 dataURL 길이 제한을 넘지 않게 품질·크기를 낮춘다.
+export function compressPhoto(file, maxSide = 720, quality = 0.7, maxLength = 400000) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file)
     const img = new Image()
     img.onload = () => {
-      const scale = Math.min(1, maxSide / Math.max(img.width, img.height))
-      const canvas = document.createElement('canvas')
-      canvas.width = Math.round(img.width * scale)
-      canvas.height = Math.round(img.height * scale)
-      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height)
-      URL.revokeObjectURL(url)
-      resolve(canvas.toDataURL('image/jpeg', quality))
+      try {
+        const scale = Math.min(1, maxSide / Math.max(img.width, img.height))
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.max(1, Math.round(img.width * scale))
+        canvas.height = Math.max(1, Math.round(img.height * scale))
+        let q = quality
+        for (let attempt = 0; attempt < 12; attempt += 1) {
+          canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height)
+          const photo = canvas.toDataURL('image/jpeg', q)
+          if (photo.length <= maxLength) return resolve(photo)
+          if (q > 0.5) q = Math.max(0.5, q - 0.1)
+          else {
+            canvas.width = Math.max(1, Math.round(canvas.width * 0.85))
+            canvas.height = Math.max(1, Math.round(canvas.height * 0.85))
+          }
+        }
+        reject(new Error('사진 크기를 줄이지 못했습니다. 다른 사진을 고릅니다.'))
+      } catch {
+        reject(new Error('사진을 처리하지 못했습니다. 다른 사진을 고릅니다.'))
+      } finally {
+        URL.revokeObjectURL(url)
+      }
     }
     img.onerror = () => {
       URL.revokeObjectURL(url)

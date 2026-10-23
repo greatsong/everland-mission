@@ -1062,7 +1062,7 @@ function QuizForm({ kind, code, run, round = null, onAdded }) {
     setPhotoError('')
     try {
       // 휴대폰 화면에서 크게 볼 수 있도록 긴 변 1024px로 줄인다. 다시 그리면서 촬영 위치 같은 정보는 지워진다.
-      set({ photo: await compressPhoto(file, 1024, 0.8) })
+      set({ photo: await compressPhoto(file, 1024, 0.8, 700000) })
     } catch (err) {
       setPhotoError(err.message)
     }

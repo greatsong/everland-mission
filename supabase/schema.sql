@@ -118,6 +118,64 @@ alter table evm_submissions enable row level security;
 alter table evm_notices enable row level security;
 alter table evm_checkins enable row level security;
 
+-- 퀴즈·입장자 표를 먼저 만든다. 아래 연습 함수가 퀴즈 행 형식을 참조하므로 새 DB에서도 이 순서를 지킨다.
+-- 퀴즈. 초성(chosung)·성경(bible)·넌센스(nonsense)·그림(image)·OX(ox)는 본부가 출제하고,
+-- 몸으로 말해요(act)는 팀이 사진과 정답을 내면 본부가 승인해 출제한다.
+-- status: pending(승인 대기) → draft(보관) → open(출제) → closed(마감)
+create table if not exists evm_quizzes (
+  id bigint generated always as identity primary key,
+  kind text not null check (kind in ('chosung', 'bible', 'nonsense', 'act', 'image', 'ox')),
+  body text not null,
+  choices json,
+  answer text not null,
+  hint text,
+  photo text,
+  author_team int check (author_team between 1 and 6),
+  points int not null default 10 check (points between 1 and 30),
+  status text not null default 'draft' check (status in ('pending', 'draft', 'open', 'closed')),
+  created_at timestamptz not null default now()
+);
+alter table evm_quizzes enable row level security;
+-- 그림 퀴즈와 퀴즈 배틀(2026-10-17). 그림 퀴즈는 photo 칸(몸으로 말해요와 같은 칸)에 그림을 둔다.
+alter table evm_quizzes drop constraint if exists evm_quizzes_kind_check;
+alter table evm_quizzes add constraint evm_quizzes_kind_check check (kind in ('chosung', 'bible', 'nonsense', 'act', 'image', 'ox'));
+-- OX 퀴즈(2026-10-18, 버스 OT): 정답은 'O' 또는 'X'이고 객관식처럼 팀에서 한 번만 답한다.
+-- note: 답한 뒤에 보여 주는 설명(OT 규칙 안내 등). 답한 팀에는 채점 결과와 함께, 모든 팀에는 마감 뒤에 보낸다.
+alter table evm_quizzes add column if not exists note text;
+-- 버스 퀴즈(2026-10-18): round가 'ot'이면 OT(아이마다 한 번씩 답하고 점수 없음), 'bus'면 팀 대항(작은 점수 6·4·2·1).
+-- null이면 에버랜드 현장 퀴즈다. 버스 문제는 본부 진행판에서 한 문제씩 시작한다(evm_bus_start).
+alter table evm_quizzes add column if not exists round text check (round in ('ot', 'bus'));
+-- 연습 문제(2026-10-18): round가 'practice'면 연습 모드에서만 보이는 문제다(버스 진행에는 나오지 않는다).
+alter table evm_quizzes drop constraint if exists evm_quizzes_round_check;
+alter table evm_quizzes add constraint evm_quizzes_round_check check (round in ('ot', 'bus', 'practice'));
+-- 맞힌 사람 이름(버스 퀴즈). 팀 기록을 만든 사람이며, 화면에는 맞힌 사람만 보인다.
+alter table evm_scores add column if not exists who text;
+-- 버스 퀴즈에 들어온 사람(휴대폰마다 한 줄). 이름은 행사 뒤 evm_wipe로 지운다.
+create table if not exists evm_players (
+  device text primary key,
+  team_id int not null check (team_id between 1 and 6),
+  name text not null,
+  joined_at timestamptz not null default now()
+);
+alter table evm_players enable row level security;
+-- OT 개인 응답. 휴대폰마다 한 번 답하고 점수는 없다. 팀별 정답률을 보여 준다.
+create table if not exists evm_answers (
+  quiz_id bigint not null references evm_quizzes(id) on delete cascade,
+  device text not null,
+  team_id int not null check (team_id between 1 and 6),
+  name text,
+  ok boolean not null,
+  created_at timestamptz not null default now(),
+  primary key (quiz_id, device)
+);
+alter table evm_answers enable row level security;
+-- battle: 선착순 방식. rush는 맞힌 순서대로 30·20·10점, 그 뒤 5점. first는 1등 팀만 문제 점수를 받는다. null이면 보통 문제
+alter table evm_quizzes add column if not exists battle text check (battle in ('rush', 'first'));
+-- starts_at: 배틀 문제를 공개하는 시각. 본부가 배틀을 시작하면 10초나 15초 뒤로 정한다
+alter table evm_quizzes add column if not exists starts_at timestamptz;
+-- 점수 기록의 정답 여부. 1등만 받는 배틀에서 늦게 맞힌 팀은 0점이지만 정답으로 남긴다(null인 예전 기록은 점수가 있으면 정답)
+alter table evm_scores add column if not exists ok boolean;
+
 -- 코드가 맞으면 'team' 또는 'admin', 틀리면 null.
 -- 버스 퀴즈 코드(quiz_code, 2026-10-18)는 본부가 입장을 열어 둔 동안(quiz_open = on) 'player', 닫으면 'ended'.
 -- player는 아이들 휴대폰용으로 퀴즈만 보고 답할 수 있다(evm_require_quiz를 쓰는 함수만).
@@ -221,7 +279,7 @@ create or replace function evm_practice_answer(p_code text, p_id bigint, p_text 
 language plpgsql stable security definer set search_path = public as $$
 declare q evm_quizzes%rowtype; v_choice boolean; v_ok boolean;
 begin
-  if evm_login(p_code) not in ('practice', 'admin') then
+  if coalesce(evm_login(p_code), '') not in ('practice', 'admin') then
     raise exception 'EVM_BAD_CODE' using errcode = 'P0001';
   end if;
   select * into q from evm_quizzes where id = p_id and round in ('ot', 'practice');
@@ -442,7 +500,8 @@ language plpgsql security definer set search_path = public as $$
 declare v evm_orders%rowtype; v_ok boolean;
 begin
   perform evm_require(p_code);
-  select * into v from evm_orders where id = p_order and kind = 'answer' and open;
+  -- 같은 지령의 답안을 하나씩 처리한다. 동시에 맞혀도 타임어택 순위가 겹치지 않게 한다.
+  select * into v from evm_orders where id = p_order and kind = 'answer' and open for update;
   if not found then
     raise exception 'EVM_ORDER_CLOSED' using errcode = 'P0001';
   end if;
@@ -460,63 +519,6 @@ begin
   end if;
   return v_ok;
 end $$;
-
--- 퀴즈. 초성(chosung)·성경(bible)·넌센스(nonsense)·그림(image)·OX(ox)는 본부가 출제하고,
--- 몸으로 말해요(act)는 팀이 사진과 정답을 내면 본부가 승인해 출제한다.
--- status: pending(승인 대기) → draft(보관) → open(출제) → closed(마감)
-create table if not exists evm_quizzes (
-  id bigint generated always as identity primary key,
-  kind text not null check (kind in ('chosung', 'bible', 'nonsense', 'act', 'image', 'ox')),
-  body text not null,
-  choices json,
-  answer text not null,
-  hint text,
-  photo text,
-  author_team int check (author_team between 1 and 6),
-  points int not null default 10 check (points between 1 and 30),
-  status text not null default 'draft' check (status in ('pending', 'draft', 'open', 'closed')),
-  created_at timestamptz not null default now()
-);
-alter table evm_quizzes enable row level security;
--- 그림 퀴즈와 퀴즈 배틀(2026-10-17). 그림 퀴즈는 photo 칸(몸으로 말해요와 같은 칸)에 그림을 둔다.
-alter table evm_quizzes drop constraint if exists evm_quizzes_kind_check;
-alter table evm_quizzes add constraint evm_quizzes_kind_check check (kind in ('chosung', 'bible', 'nonsense', 'act', 'image', 'ox'));
--- OX 퀴즈(2026-10-18, 버스 OT): 정답은 'O' 또는 'X'이고 객관식처럼 팀에서 한 번만 답한다.
--- note: 답한 뒤에 보여 주는 설명(OT 규칙 안내 등). 답한 팀에는 채점 결과와 함께, 모든 팀에는 마감 뒤에 보낸다.
-alter table evm_quizzes add column if not exists note text;
--- 버스 퀴즈(2026-10-18): round가 'ot'이면 OT(아이마다 한 번씩 답하고 점수 없음), 'bus'면 팀 대항(작은 점수 6·4·2·1).
--- null이면 에버랜드 현장 퀴즈다. 버스 문제는 본부 진행판에서 한 문제씩 시작한다(evm_bus_start).
-alter table evm_quizzes add column if not exists round text check (round in ('ot', 'bus'));
--- 연습 문제(2026-10-18): round가 'practice'면 연습 모드에서만 보이는 문제다(버스 진행에는 나오지 않는다).
-alter table evm_quizzes drop constraint if exists evm_quizzes_round_check;
-alter table evm_quizzes add constraint evm_quizzes_round_check check (round in ('ot', 'bus', 'practice'));
--- 맞힌 사람 이름(버스 퀴즈). 팀 기록을 만든 사람이며, 화면에는 맞힌 사람만 보인다.
-alter table evm_scores add column if not exists who text;
--- 버스 퀴즈에 들어온 사람(휴대폰마다 한 줄). 이름은 행사 뒤 evm_wipe로 지운다.
-create table if not exists evm_players (
-  device text primary key,
-  team_id int not null check (team_id between 1 and 6),
-  name text not null,
-  joined_at timestamptz not null default now()
-);
-alter table evm_players enable row level security;
--- OT 개인 응답. 휴대폰마다 한 번 답하고 점수는 없다. 팀별 정답률을 보여 준다.
-create table if not exists evm_answers (
-  quiz_id bigint not null references evm_quizzes(id) on delete cascade,
-  device text not null,
-  team_id int not null check (team_id between 1 and 6),
-  name text,
-  ok boolean not null,
-  created_at timestamptz not null default now(),
-  primary key (quiz_id, device)
-);
-alter table evm_answers enable row level security;
--- battle: 선착순 방식. rush는 맞힌 순서대로 30·20·10점, 그 뒤 5점. first는 1등 팀만 문제 점수를 받는다. null이면 보통 문제
-alter table evm_quizzes add column if not exists battle text check (battle in ('rush', 'first'));
--- starts_at: 배틀 문제를 공개하는 시각. 본부가 배틀을 시작하면 10초나 15초 뒤로 정한다
-alter table evm_quizzes add column if not exists starts_at timestamptz;
--- 점수 기록의 정답 여부. 1등만 받는 배틀에서 늦게 맞힌 팀은 0점이지만 정답으로 남긴다(null인 예전 기록은 점수가 있으면 정답)
-alter table evm_scores add column if not exists ok boolean;
 
 create or replace function evm_norm(p_text text) returns text
 language sql immutable as $$
@@ -582,7 +584,8 @@ begin
   if evm_login(p_code) = 'practice' then
     return; -- 연습은 입장 기록을 남기지 않는다(교사 연습용)
   end if;
-  if coalesce(btrim(p_device), '') = '' or length(btrim(coalesce(p_name, ''))) not between 1 and 10 or p_team not between 1 and 6 then
+  if coalesce(btrim(p_device), '') = '' or length(btrim(coalesce(p_name, ''))) not between 1 and 10
+     or coalesce(p_team, 0) not between 1 and coalesce((select value::int from evm_config where key = 'team_count'), 6) then
     raise exception 'EVM_BAD_PLAYER' using errcode = 'P0001';
   end if;
   -- 팀 대항이 시작된 뒤에는 다른 팀으로 바꿀 수 없다(다른 팀 문제에 일부러 틀리는 일을 막는다).
@@ -726,7 +729,8 @@ begin
   return (select photo from evm_quizzes
           where id = p_id and (evm_login(p_code) = 'admin'
             or (evm_login(p_code) = 'practice' and round in ('ot', 'practice'))
-            or (evm_login(p_code) <> 'practice' and status in ('open', 'closed'))));
+            or (evm_login(p_code) <> 'practice' and status in ('open', 'closed')
+              and (evm_login(p_code) <> 'player' or round in ('ot', 'bus')))));
 end $$;
 
 -- 답안 제출과 채점. 객관식은 한 번만, 나머지는 맞힐 때까지 낼 수 있다.

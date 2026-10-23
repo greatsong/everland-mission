@@ -63,6 +63,9 @@ export function BusJoin({ session, onJoin, onLogout, onTeacher }) {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const team = TEAMS.find((t) => t.id === teamId)
+  useEffect(() => {
+    if (data?.team_count && teamId > data.team_count) setTeamId(null)
+  }, [data?.team_count, teamId])
 
   async function join(e) {
     e.preventDefault()
@@ -346,6 +349,9 @@ export function PlayerHome({ session, onLeave, onLogout, onTeacher }) {
   const { data, online, refresh } = useRemote(code, onBad, ended ? (waiting ? 10000 : 30000) : battleOn ? POLL_BATTLE_MS : practiceOn ? 10000 : POLL_BUS_MS, deviceId())
   const practice = Boolean(data?.practice)
   useEffect(() => {
+    if (data?.team_count && teamId > data.team_count) onLeave()
+  }, [data?.team_count, teamId, onLeave])
+  useEffect(() => {
     if (data) {
       last.current = data
       saveLast(data)
@@ -357,7 +363,7 @@ export function PlayerHome({ session, onLeave, onLogout, onTeacher }) {
   // 버스 진행 화면이 될 때마다 입장 기록을 다시 남긴다(본부가 기록을 지운 뒤에도 저장된 이름·팀으로 바로 답할 수 있게).
   // 연습·준비 중·결과 화면에서 버스 진행으로 바뀔 때도 남긴다. 그 화면들에서는 서버가 입장을 받지 않는다(2026-10-22 시험에서
   // 준비 중 화면에서 바뀐 휴대폰의 입장 기록이 빠지던 문제). 기록한 뒤 상태를 다시 받아 대기실의 우리 팀 인원이 바로 맞게 한다.
-  const live = Boolean(data) && !practice && !ended
+  const live = Boolean(data) && !practice && !ended && (!data.team_count || teamId <= data.team_count)
   useEffect(() => {
     if (!live) return
     rpc('evm_player_join', { p_code: code, p_device: deviceId(), p_team: teamId, p_name: name }).then(() => refresh()).catch(() => {})
@@ -368,7 +374,7 @@ export function PlayerHome({ session, onLeave, onLogout, onTeacher }) {
     report('enter', `${team.name} 버스 퀴즈 입장 · 화면 ${window.innerWidth}x${window.innerHeight}`)
   }, [team.name])
 
-  if (ended && (waiting || last.current?.practice)) return <BusWaiting team={team} name={name} onExit={() => onLogout()} onTeacher={onTeacher} />
+  if (ended && waiting) return <BusWaiting team={team} name={name} onExit={() => onLogout()} onTeacher={onTeacher} />
   if (ended) return <BusResult code={code} data={last.current || loadLast()} onExit={() => onLogout()} />
 
   const teams = teamsOf(data)

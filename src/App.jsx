@@ -469,7 +469,7 @@ function Bingo({ code, teamId, board, done, data, refresh, onCapture, locateOn, 
     setBusy(true)
     try {
       // 지도에 띄울 작은 사진(긴 변 160px)을 함께 만든다.
-      const [photo, thumb] = await Promise.all([compressPhoto(file), compressPhoto(file, 160, 0.6)])
+      const [photo, thumb] = await Promise.all([compressPhoto(file), compressPhoto(file, 160, 0.6, 40000)])
       await onCapture(selected.id, photo, { thumb, here })
     } catch (err) {
       setNotice(err.message)
@@ -782,7 +782,7 @@ function TeamProfile({ code, teamId, data, refresh }) {
     e.target.value = ''
     if (!file) return
     try {
-      setPhoto(await compressPhoto(file, 200, 0.7))
+      setPhoto(await compressPhoto(file, 200, 0.7, 60000))
     } catch (err) {
       setMessage(err.message)
     }

@@ -179,20 +179,34 @@ export function BattleOrder({ data, quiz, teamId }) {
 // OT(round = 'ot')는 휴대폰마다 따로 답하고 점수가 없다. 팀 정답률은 버스 화면이 따로 보여 준다.
 // onBadPlayer: 입장 정보가 없을 때(본부가 내보냈거나 기록을 지움) 부른다. 버스 화면은 입장 화면으로 돌아간다.
 // answerFn: 연습(2026-10-18, 교사 연습용)처럼 기록하지 않고 채점만 받을 때 답 보내기를 바꾼다(Bus.jsx의 PracticeHome).
-export function QuizCard({ code, teamId, quiz, data, result, refresh, onNext, who, onBadPlayer, answerFn }) {
+export function QuizCard({ code, teamId, quiz, data, result: remoteResult, refresh, onNext, who, onBadPlayer, answerFn }) {
   const [text, setText] = useState('')
   const topRef = useRef(null) // 그림과 문제(입력할 때 화면 위쪽으로 올린다)
   const [hint, setHint] = useState(false)
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const [reply, setReply] = useState(null) // 서버 채점 결과
+  const confirmed = useRef(false)
   const [shake, setShake] = useState(false) // 틀렸을 때 입력 칸을 흔든다
   const [picked, setPicked] = useState(null) // OX에서 고른 답(틀렸을 때 표시)
   const sec = useCountdown(data, quiz)
-  const done = Boolean(result) || quiz.status === 'closed'
   const isChoice = quiz.kind === 'bible' && Array.isArray(quiz.choices)
   const isOx = quiz.kind === 'ox'
   const oneShot = isChoice || isOx // 팀(OT는 사람)마다 한 번만 답한다
+  // 채점 응답은 받았는데 다음 상태 조회가 끊겨도, 이미 받은 결과를 표시하고 재제출을 막는다.
+  const result = remoteResult || (reply && (reply.ok || oneShot) ? { ok: reply.ok, score: reply.points } : null)
+  const done = Boolean(result) || quiz.status === 'closed'
+  useEffect(() => {
+    if (remoteResult) confirmed.current = true
+    else if (confirmed.current) {
+      // 본부가 리허설 점수를 지운 뒤에는 같은 문제를 다시 풀 수 있다.
+      confirmed.current = false
+      setReply(null)
+      setPicked(null)
+      setText('')
+      setMessage('')
+    }
+  }, [remoteResult])
   const each = quiz.round === 'ot' || quiz.round === 'practice'
   const practice = Boolean(answerFn)
   const hidden = quiz.body == null // 배틀 문제가 아직 공개되지 않음

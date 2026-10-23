@@ -55,8 +55,8 @@
 스키마 적용(pythink2의 다른 표는 건드리지 않는다. `evm_` 이름만 다룬다):
 
 ```bash
-npx -y supabase@latest db query --linked --project-ref fipdcjhtfslinfmalwjn -f supabase/schema.sql
-npx -y supabase@latest db query --linked --project-ref fipdcjhtfslinfmalwjn "notify pgrst, 'reload schema'"
+supabase db query --linked --project-ref fipdcjhtfslinfmalwjn -f supabase/schema.sql
+supabase db query --linked --project-ref fipdcjhtfslinfmalwjn "notify pgrst, 'reload schema'"
 ```
 
 `schema.sql`을 고치면 `_private/setup.sql`(스키마 + 코드 등록)도 같은 내용으로 맞춘다.
@@ -64,7 +64,7 @@ npx -y supabase@latest db query --linked --project-ref fipdcjhtfslinfmalwjn "not
 Edge Function 배포:
 
 ```bash
-npx -y supabase@latest functions deploy evm-suggest --project-ref fipdcjhtfslinfmalwjn --no-verify-jwt --use-api
+supabase functions deploy evm-suggest --project-ref fipdcjhtfslinfmalwjn --no-verify-jwt --use-api
 ```
 
 배포(GitHub Pages): `main`에 소스를 푸시하고, `npx vite build` 결과(`dist/`)를 `.nojekyll`과 함께 `gh-pages` 가지에 강제 푸시한다. 이때 이전 `gh-pages`의 `assets/` 파일을 `dist/assets/`에 남겨 둔다(`git archive origin/gh-pages assets | tar -x -k -C dist`). 배포 직후 예전 화면이 열려 있던 휴대폰이 바뀐 지도 파일을 찾지 못하는 오류가 있었다(2026-10-12). 화면 쪽에도 불러오지 못하면 한 번 새로 고치는 장치(`store.js`의 `lazyImport`)가 있다. 배포 뒤에는 주소의 번들 파일 이름이 바뀌었는지 확인한다.
@@ -75,7 +75,17 @@ npx -y supabase@latest functions deploy evm-suggest --project-ref fipdcjhtfslinf
 scripts/monitor.sh 120
 ```
 
+2026-10-23 이 Codex 채팅에서 운영 접근을 확인했다. 설치형 `supabase` 2.121.0의 Management API 경로로 `postgres` 접속이 되며, `evm_` 표 14개 모두 조회·추가·수정·삭제 권한, 서버 함수 50개 모두 수정 권한이 있다. 로컬 스키마와 운영 함수 본문도 일치했다. GitHub `greatsong` 인증과 저장소 admin/push 권한, `git push --dry-run origin HEAD:main`, Pages 배포 상태, 앱 코드별 조회, AI 추천 1개 호출까지 성공했다. `npx -y supabase@latest`는 이 Mac에서 `No matching Supabase CLI binary package found for darwin-arm64`로 실패하므로 위의 설치형 CLI를 쓴다. `scripts/monitor.sh`도 설치형 CLI를 쓰고 조회 실패 시 오류를 숨기지 않고 종료하도록 고쳤다.
+
+접근 점검 요약은 `_private/access-check-2026-10-23.json`, 행사 전 DB 백업은 `_private/backup/evm_backup_20261023_202151_access_check.json`(14개 표, 파일 권한 600)에 있다. 백업에는 코드와 개인정보가 포함되므로 출력·커밋·공유하지 않는다. 장애 수정 직전에도 그때의 DB를 새로 백업하고 필요한 `evm_` 항목만 다룬다. Codex 기본 실행 환경에서는 외부 DNS와 CLI 설정 파일 쓰기가 제한되어 인증 실패처럼 보일 수 있다. 이 경우 외부 접근용 실행 권한으로 재확인한다. `gh auth status`를 기본 환경에서 실패했다고 바로 재로그인하거나 자격 증명을 지우지 않는다. 점검 당시 운영 상태는 5팀, 퀴즈 28개, 버스 입장·연습 꺼짐, 열린 퀴즈 없음이었으며 다음날에는 다시 조회한다.
+
 ## 지킬 것
+
+### 2026-10-23 최종 오류 점검 — 운영 반영 완료(20:45)
+
+- 재현 후 고친 사항: 채점 응답 직후 통신이 끊기면 결과가 사라지고 다시 답할 수 있던 문제, 버스 화면의 예전 6팀 기록, 마지막 화면이 연습인 기기의 종료 화면 오표시, 복잡한 그림이 서버 길이 제한을 넘는 문제, 잘못된 코드의 연습 채점 접근, 정답 지령 동시 제출 시 타임어택 순위 중복, 새 DB에서 스키마 생성 순서 오류, 버스 코드의 현장 퀴즈 그림 접근이다. 서버의 참가 팀 제한도 현재 설정에 맞췄다.
+- 화면은 가짜 서버를 붙인 390×844 브라우저, SQL은 운영과 분리된 임시 PostgreSQL에서 검증했다. 브라우저 10개·DB 10개 시나리오, 새 스키마 생성과 반복 적용, 되돌리기 SQL과 반영 SQL, 최종 빌드가 통과했다. 시험 원본과 결과는 `_private/audit/`에 있다. 실제 아이폰·카카오톡 카메라와 위치 권한은 이 시험으로 보증하지 않는다.
+- 사용자 승인 후 2026-10-23 20:45에 운영에 반영했다. 반영 직전 백업은 `_private/backup/evm_backup_20261023_204418_before_fix_deploy.json`이다. 반영 순서는 새 백업과 사용 중인 팀을 확인한 뒤, `_private/audit/server-fixes.sql`로 함수 네 개(`evm_answer`, `evm_player_join`, `evm_practice_answer`, `evm_quiz_photo`)만 먼저 적용하고 화면을 배포한다. 이 SQL은 기존 표와 운영 기록을 변경하지 않는다. 되돌리기는 `_private/audit/server-rollback.sql`이다. 두 SQL은 하나의 트랜잭션으로 실행하며 PostgREST 스키마 캐시 갱신을 포함한다. 화면 배포 때는 위에서 설명한 이전 assets 보존 규칙을 지킨다.
 
 - 시험 전에 `scripts/monitor.sh`로 어느 팀이 실제로 사용 중인지 확인하고, 사용 중인 팀 번호로는 서버에 쓰는 시험을 하지 않는다(2026-10-05 기준 1·5·6팀이 사용 중)
 - 운영 DB에서 시험한다. 시험 자료는 `[시험]` 표시를 붙여 넣고 끝나면 그것만 지운다. 사용자가 넣은 퀴즈·사진·팀 소개는 지우지 않는다. `evm_wipe`는 사용자가 직접 누른다
