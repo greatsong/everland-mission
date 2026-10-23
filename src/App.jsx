@@ -330,11 +330,10 @@ function TeamHome({ session, onLeave, onLogout }) {
   const { count, lines, score } = total
   const pending = Object.values(state.done).filter((r) => !r.synced).length + state.removed.length
 
-  // 사진 저장. 카메라로 찍은 사진은 지금 위치를 함께 남긴다(위치 공유가 켜져 있을 때만).
-  // 앨범에서 고른 사진은 언제 어디서 찍었는지 알 수 없으므로 위치를 남기지 않는다.
-  async function capture(missionId, photo, { thumb = null, camera = false } = {}) {
+  // 사진 저장. here가 참이면 지금 위치를 함께 남긴다(위치 공유가 켜져 있을 때만).
+  async function capture(missionId, photo, { thumb = null, here = false } = {}) {
     setNotice('')
-    const where = camera ? await locate.positionNow() : null
+    const where = here ? await locate.positionNow() : null
     locate.ping()
     setState((p) => ({
       ...p,
@@ -342,6 +341,10 @@ function TeamHome({ session, onLeave, onLogout }) {
       removed: p.removed.filter((x) => x !== missionId),
     }))
   }
+
+  // 앨범에서 고른 사진은 언제 어디서 찍었는지 알 수 없으므로, 위치 공유가 켜져 있을 때 방금 이 자리에서 찍었는지 묻는다.
+  const askHere = () =>
+    locate.on && confirm('방금 이 자리에서 찍은 사진입니까? 확인을 누르면 지금 위치를 사진 위치로 남깁니다.')
 
   function remove(missionId) {
     setState((p) => {
@@ -395,7 +398,7 @@ function TeamHome({ session, onLeave, onLogout }) {
       <main className="body">
         {tab === 'bingo' && <LocatePrompt locate={locate} teachers={teachers} />}
         {tab === 'bingo' && (
-          <Bingo code={code} teamId={teamId} board={board} done={done} data={data} refresh={() => { locate.ping(); refresh() }} onCapture={capture} onRemove={remove} setNotice={setNotice} />
+          <Bingo code={code} teamId={teamId} board={board} done={done} data={data} refresh={() => { locate.ping(); refresh() }} onCapture={capture} askHere={askHere} onRemove={remove} setNotice={setNotice} />
         )}
         {tab === 'games' && <Games code={code} teamId={teamId} data={data} refresh={refreshGames} focus={focusQuiz} onFocused={clearFocus} />}
         {tab === 'together' && <Together code={code} data={data} teamId={teamId} refresh={refresh} />}
@@ -430,7 +433,7 @@ function Cell({ code, teamId, mission, rec, inLine, onClick }) {
   )
 }
 
-function Bingo({ code, teamId, board, done, data, refresh, onCapture, onRemove, setNotice }) {
+function Bingo({ code, teamId, board, done, data, refresh, onCapture, askHere, onRemove, setNotice }) {
   const [selected, setSelected] = useState(null)
   const [busy, setBusy] = useState(false)
   const fileRef = useRef(null)
@@ -454,11 +457,12 @@ function Bingo({ code, teamId, board, done, data, refresh, onCapture, onRemove, 
     const file = e.target.files?.[0]
     e.target.value = ''
     if (!file || !selected) return
+    const here = camera || askHere() // 카메라로 찍은 사진은 묻지 않고 지금 위치를 남긴다
     setBusy(true)
     try {
       // 지도에 띄울 작은 사진(긴 변 160px)을 함께 만든다.
       const [photo, thumb] = await Promise.all([compressPhoto(file), compressPhoto(file, 160, 0.6)])
-      await onCapture(selected.id, photo, { thumb, camera })
+      await onCapture(selected.id, photo, { thumb, here })
     } catch (err) {
       setNotice(err.message)
     } finally {
