@@ -198,6 +198,72 @@ export function fetchPhoto(code, teamId, missionId, at) {
   return photoCache.get(key)
 }
 
+// 그림(Image 또는 ImageBitmap)을 긴 변 maxSide 이하로 그려 dataURL 길이 제한 안의 JPEG로 만든다.
+// 품질을 먼저 낮추고 그래도 길면 크기를 줄인다. 끝내 줄이지 못하면 null을 돌려준다.
+function encodeWithin(source, width, height, maxSide, quality, maxLength) {
+  const scale = Math.min(1, maxSide / Math.max(width, height))
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round(width * scale))
+  canvas.height = Math.max(1, Math.round(height * scale))
+  let q = quality
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    canvas.getContext('2d').drawImage(source, 0, 0, canvas.width, canvas.height)
+    const photo = canvas.toDataURL('image/jpeg', q)
+    if (photo.length <= maxLength) return photo
+    if (q > 0.5) q = Math.max(0.5, q - 0.1)
+    else {
+      canvas.width = Math.max(1, Math.round(canvas.width * 0.85))
+      canvas.height = Math.max(1, Math.round(canvas.height * 0.85))
+    }
+  }
+  return null
+}
+
+// 브라우저가 사진을 열지 못했을 때 원인을 가리는 정보(2026-10-24, 갤럭시 카카오톡 안 브라우저에서 4.2MB JPEG 읽기 실패).
+// 파일 앞부분 512KB만 읽어 실제 형식, 가로세로, 울트라 HDR·모션 포토 여부를 본다. 읽기부터 실패하면 클라우드에만 있는 사진 등이다.
+async function probePhoto(file) {
+  const info = []
+  const ext = (file.name || '').includes('.') ? file.name.split('.').pop().toLowerCase() : ''
+  if (ext) info.push(ext)
+  if (file.lastModified) info.push(`${Math.round((Date.now() - file.lastModified) / 60000)}분 전 파일`)
+  let bytes
+  try {
+    bytes = new Uint8Array(await file.slice(0, 512 * 1024).arrayBuffer())
+  } catch (err) {
+    info.push(`파일 읽기 실패(${err.name || err.message})`)
+    return { info, size: null }
+  }
+  if (!bytes.length) return { info: [...info, '빈 파일'], size: null }
+  const ascii = (a, b) => String.fromCharCode(...bytes.subarray(a, b))
+  let size = null
+  if (bytes[0] === 0xff && bytes[1] === 0xd8) {
+    info.push('JPEG')
+    // 프레임 표지(SOF)에서 가로세로를 읽는다. 앞쪽 부가 정보(APP) 구역은 길이만큼 건너뛴다.
+    for (let i = 2; i + 9 < bytes.length; ) {
+      if (bytes[i] !== 0xff) break
+      const m = bytes[i + 1]
+      if (m === 0xff) { i += 1; continue }
+      const sof = (m >= 0xc0 && m <= 0xc3) || (m >= 0xc5 && m <= 0xc7) || (m >= 0xc9 && m <= 0xcb) || (m >= 0xcd && m <= 0xcf)
+      if (sof) {
+        size = { height: (bytes[i + 5] << 8) | bytes[i + 6], width: (bytes[i + 7] << 8) | bytes[i + 8] }
+        break
+      }
+      if (m === 0xda) break
+      i += 2 + ((bytes[i + 2] << 8) | bytes[i + 3])
+    }
+    const text = new TextDecoder('latin1').decode(bytes)
+    if (/hdrgm|GainMap/i.test(text)) info.push('울트라 HDR')
+    if (/MotionPhoto|MicroVideo/i.test(text)) info.push('모션 포토')
+  } else if (ascii(4, 8) === 'ftyp') info.push(`HEIF(${ascii(8, 12)})`)
+  else if (ascii(0, 4) === 'RIFF') info.push('WebP')
+  else if (bytes[0] === 0x89 && ascii(1, 4) === 'PNG') info.push('PNG')
+  else info.push(`알 수 없는 형식(${[...bytes.subarray(0, 4)].map((b) => b.toString(16).padStart(2, '0')).join('')})`)
+  if (size) info.push(`${size.width}x${size.height}`)
+  return { info, size }
+}
+
+const READ_FAIL_TEXT = '이 사진을 읽지 못했습니다. 다른 사진을 고르거나 다시 찍습니다.'
+
 // 사진을 긴 변 720px JPEG로 줄인다. 복잡한 그림도 서버의 dataURL 길이 제한을 넘지 않게 품질·크기를 낮춘다.
 export function compressPhoto(file, maxSide = 720, quality = 0.7, maxLength = 400000) {
   return new Promise((resolve, reject) => {
@@ -205,32 +271,42 @@ export function compressPhoto(file, maxSide = 720, quality = 0.7, maxLength = 40
     const img = new Image()
     img.onload = () => {
       try {
-        const scale = Math.min(1, maxSide / Math.max(img.width, img.height))
-        const canvas = document.createElement('canvas')
-        canvas.width = Math.max(1, Math.round(img.width * scale))
-        canvas.height = Math.max(1, Math.round(img.height * scale))
-        let q = quality
-        for (let attempt = 0; attempt < 12; attempt += 1) {
-          canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height)
-          const photo = canvas.toDataURL('image/jpeg', q)
-          if (photo.length <= maxLength) return resolve(photo)
-          if (q > 0.5) q = Math.max(0.5, q - 0.1)
-          else {
-            canvas.width = Math.max(1, Math.round(canvas.width * 0.85))
-            canvas.height = Math.max(1, Math.round(canvas.height * 0.85))
-          }
-        }
-        reject(new Error('사진 크기를 줄이지 못했습니다. 다른 사진을 고릅니다.'))
+        const photo = encodeWithin(img, img.width, img.height, maxSide, quality, maxLength)
+        if (photo) resolve(photo)
+        else reject(new Error('사진 크기를 줄이지 못했습니다. 다른 사진을 고릅니다.'))
       } catch {
         reject(new Error('사진을 처리하지 못했습니다. 다른 사진을 고릅니다.'))
       } finally {
         URL.revokeObjectURL(url)
       }
     }
-    img.onerror = () => {
+    // 열지 못하면 원인 정보를 모으고, 다른 방법(createImageBitmap)으로 한 번 더 연다. 크기를 알면 줄여서 열어 메모리를 덜 쓴다.
+    img.onerror = async () => {
       URL.revokeObjectURL(url)
-      report('photo', `읽기 실패: ${file.type || '종류 모름'} ${Math.round(file.size / 1024)}KB`)
-      reject(new Error('사진을 읽지 못했습니다.'))
+      const { info, size } = await probePhoto(file).catch(() => ({ info: ['확인 실패'], size: null }))
+      const head = `${file.type || '종류 모름'} ${Math.round(file.size / 1024)}KB · ${info.join(' · ')}`
+      let why = '다른 방법 없음'
+      let photo = null
+      if (typeof createImageBitmap === 'function') {
+        try {
+          const long = size ? Math.max(size.width, size.height) : 0
+          const opts = long > maxSide * 2 ? { resizeWidth: Math.round(size.width * ((maxSide * 2) / long)), resizeQuality: 'high' } : undefined
+          const bitmap = await createImageBitmap(file, opts)
+          photo = encodeWithin(bitmap, bitmap.width, bitmap.height, maxSide, quality, maxLength)
+          bitmap.close?.()
+          if (!photo) why = '다른 방법으로 열었지만 줄이지 못함'
+        } catch (err) {
+          why = `다른 방법도 실패(${err.name || err.message})`
+        }
+      }
+      // 결과를 먼저 돌려준 뒤 기록한다(기록이 실패해도 사진 처리는 끝나게).
+      if (photo) resolve(photo)
+      else reject(new Error(READ_FAIL_TEXT))
+      try {
+        report('photo', photo ? `다른 방법으로 읽음: ${head}` : `읽기 실패: ${head} · ${why}`)
+      } catch {
+        /* 기록 실패는 사진 처리와 무관하다 */
+      }
     }
     img.src = url
   })
