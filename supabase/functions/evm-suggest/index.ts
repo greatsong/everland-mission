@@ -54,7 +54,8 @@ Deno.serve(async (req) => {
     const anon = Deno.env.get('SUPABASE_ANON_KEY')!
     const login = await fetch(`${base}/rest/v1/rpc/evm_login`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', apikey: anon, Authorization: `Bearer ${anon}` },
+      // 새 sb_ 키는 JWT가 아니므로 Authorization에 넣지 않는다.
+      headers: { 'Content-Type': 'application/json', apikey: anon, ...(anon.startsWith('eyJ') ? { Authorization: `Bearer ${anon}` } : {}) },
       body: JSON.stringify({ p_code: String(code ?? '') }),
     })
     if ((await login.json()) !== 'admin') return json({ message: 'EVM_BAD_CODE' }, 403)
